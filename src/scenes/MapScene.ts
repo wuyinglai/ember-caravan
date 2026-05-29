@@ -10,6 +10,7 @@ export class MapScene extends Phaser.Scene {
   private cellTexts: Phaser.GameObjects.Text[][] = [];
   private cellHitAreas: Phaser.GameObjects.Zone[][] = [];
   private resourceTexts: { [key: string]: Phaser.GameObjects.Text } = {};
+  private debugTexts: { [key: string]: Phaser.GameObjects.Text } = {};
   private cellSize = 42;
   private cellGap = 4;
   private mapContainer!: Phaser.GameObjects.Container;
@@ -22,6 +23,10 @@ export class MapScene extends Phaser.Scene {
 
   // 调试计数器
   private debugStep = 0;
+
+  // 自动移动测试
+  private autoMoveTimer: Phaser.Time.TimerEvent | null = null;
+  private isAutoMoving = false;
 
   constructor() {
     super({ key: 'MapScene' });
@@ -64,6 +69,7 @@ export class MapScene extends Phaser.Scene {
         case 'd': case 'arrowright': this.moveCamera(this.scrollSpeed, 0); break;
         case ' ': this.centerCameraOnPlayer(); break;
         case 't': this.debugRandomMove(); break;
+        case 'y': this.autoMoveTest(); break;
         case 'escape':
           // Escape 键关闭弹窗（调试用）
           if (this.popupObjects.length > 0) {
@@ -82,6 +88,7 @@ export class MapScene extends Phaser.Scene {
     this.checkGameStatus(gameState);
 
     console.log('[地图] 地图场景已加载');
+    this.debugMovementState('进入地图');
   }
 
   // ==================== 弹窗系统 ====================
@@ -155,6 +162,7 @@ export class MapScene extends Phaser.Scene {
     this.redrawMap();
     this.updateHitAreaCursors();
     this.updateResourceDisplay();
+    this.debugMovementState('关闭弹窗');
   }
 
   // ==================== 格子完成状态统一处理 ====================
@@ -198,7 +206,12 @@ export class MapScene extends Phaser.Scene {
       fontSize: '14px', color: '#ffdd44', fontFamily: 'monospace',
     });
 
-    this.add.text(w / 2, h - 20, 'WASD/方向键移动视角 | Space回到商队 | T=随机移动 | 点击格子移动', {
+    // 调试信息显示
+    this.debugTexts['pos'] = this.add.text(10, y, '', {
+      fontSize: '12px', color: '#aaaaaa', fontFamily: 'monospace',
+    });
+
+    this.add.text(w / 2, h - 20, 'WASD/方向键移动视角 | Space回到商队 | T=随机移动 | Y=自动移动测试 | 点击格子移动', {
       fontSize: '12px', color: '#888888', fontFamily: 'monospace',
     }).setOrigin(0.5);
   }
@@ -359,6 +372,8 @@ export class MapScene extends Phaser.Scene {
     const gameState = getGameState();
     const cell = gameState.mapCells[y][x];
 
+    this.debugMovementState('点击格子');
+
     console.log('[地图] 点击格子:', { x, y, type: cell.type, isReachable: cell.isReachable, isCleared: cell.isCleared });
 
     // 障碍不可移动
@@ -374,6 +389,8 @@ export class MapScene extends Phaser.Scene {
     setGameState(gameState);
     console.log(`[地图] 移动到 (${x}, ${y}) 成功，day=${gameState.day}`);
 
+    this.debugMovementState('移动后');
+
     // 立即刷新地图显示
     this.redrawMap();
     this.updateHitAreaCursors();
@@ -387,16 +404,9 @@ export class MapScene extends Phaser.Scene {
   }
 
   private updateHitAreaCursors(): void {
-    const gameState = getGameState();
-    for (let y = 0; y < gameState.mapHeight; y++) {
-      for (let x = 0; x < gameState.mapWidth; x++) {
-        const cell = gameState.mapCells[y][x];
-        const hitArea = this.cellHitAreas[y][x];
-        if (hitArea) {
-          hitArea.setInteractive({ useHandCursor: cell.isReachable });
-        }
-      }
-    }
+    // 不再反复调用 setInteractive，只在第一次创建时设置
+    // Phaser 的 Zone 没有 cursor 样式 API，此方法简化为日志输出
+    console.log('[地图调试] updateHitAreaCursors 调用（已简化为空操作）');
   }
 
   private redrawMap(): void {
@@ -660,7 +670,7 @@ export class MapScene extends Phaser.Scene {
       }});
     }
     options.push({ text: '离开', action: () => {
-      // 离开不标记 cleared，但必须关闭弹窗
+      this.completeCurrentCell(cell);
       this.closePopup();
     }});
     this.createPopup('补给站', `剩余金币: ${gameState.gold}\n\n选择补给项目：`, options);
@@ -754,6 +764,17 @@ export class MapScene extends Phaser.Scene {
     this.resourceTexts['caravan'].setColor(caravanColor);
 
     this.resourceTexts['gold'].setText(`💰 ${gameState.gold}`);
+
+    // 更新调试信息
+    let reachableCount = 0;
+    for (let y = 0; y < gameState.mapHeight; y++) {
+      for (let x = 0; x < gameState.mapWidth; x++) {
+        if (gameState.mapCells[y][x].isReachable) reachableCount++;
+      }
+    }
+    if (this.debugTexts['pos']) {
+      this.debugTexts['pos'].setText(`位置:(${gameState.currentPosition.x},${gameState.currentPosition.y}) 可达:${reachableCount} 弹窗:${this.popupObjects.length}`);
+    }
   }
 
   private createPartyDisplay(gameState: ReturnType<typeof getGameState>): void {
@@ -857,11 +878,55 @@ export class MapScene extends Phaser.Scene {
 
   // ==================== 调试功能 ====================
 
+  /** 打印详细的移动状态调试信息 */
+  private debugMovementState(reason: string): void {
+    const gameState = getGameState();
+    const { x, y } = gameState.currentPosition;
+    const cell = gameState.mapCells[y][x];
+
+    let reachableCount = 0;
+    for (let row = 0; row < gameState.mapHeight; row++) {
+      for (let col = 0; col < gameState.mapWidth; col++) {
+        if (gameState.mapCells[row][col].isReachable) reachableCount++;
+      }
+    }
+
+    console.log(`[地图调试] ${reason} | current=(${x},${y}) reachableCount=${reachableCount} popupObjects=${this.popupObjects.length} day=${gameState.day} food=${gameState.food} gold=${gameState.gold} | currentCell: type=${cell.type} isCleared=${cell.isCleared} isRevealed=${cell.isRevealed} resolvedType=${cell.resolvedType}`);
+
+    // 打印四周四格详细信息
+    const dirs = [
+      { name: '上', dx: 0, dy: -1 },
+      { name: '下', dx: 0, dy: 1 },
+      { name: '左', dx: -1, dy: 0 },
+      { name: '右', dx: 1, dy: 0 },
+    ];
+    for (const dir of dirs) {
+      const nx = x + dir.dx;
+      const ny = y + dir.dy;
+      if (nx >= 0 && nx < gameState.mapWidth && ny >= 0 && ny < gameState.mapHeight) {
+        const c = gameState.mapCells[ny][nx];
+        const isObstacle = c.type === 'obstacle';
+        console.log(`[地图调试]   ${dir.name} (${nx},${ny}): type=${c.type} isReachable=${c.isReachable} isVisited=${c.visited} isRevealed=${c.isRevealed} isCleared=${c.isCleared} resolvedType=${c.resolvedType} obstacle=${isObstacle}`);
+      } else {
+        console.log(`[地图调试]   ${dir.name} (${nx},${ny}): 超出地图边界`);
+      }
+    }
+  }
+
   /** T键：随机移动到一个可达格 */
   private debugRandomMove(): void {
-    // 如果有弹窗打开，先关闭
+    this.debugMovementState('T键移动前');
+
+    // 如果有弹窗打开，自动点击第一个弹窗按钮
     if (this.popupObjects.length > 0) {
-      console.log('[地图测试] 弹窗打开中，先关闭弹窗');
+      console.log('[地图调试] T键检测到弹窗，尝试点击第一个按钮');
+      const btn = this.findFirstPopupButton();
+      if (btn) {
+        btn.emit('pointerdown');
+        return;
+      }
+      // 如果找不到按钮，fallback 到 closePopup
+      console.log('[地图调试] T键未找到弹窗按钮，fallback 到 closePopup');
       this.closePopup();
       return;
     }
@@ -879,22 +944,7 @@ export class MapScene extends Phaser.Scene {
 
     if (reachable.length === 0) {
       console.log(`[地图测试] step=${this.debugStep} 没有可达格！当前坐标:`, gameState.currentPosition);
-      // 打印周围四格信息
-      const { x: cx, y: cy } = gameState.currentPosition;
-      const dirs = [
-        { name: '上', dx: 0, dy: -1 },
-        { name: '下', dx: 0, dy: 1 },
-        { name: '左', dx: -1, dy: 0 },
-        { name: '右', dx: 1, dy: 0 },
-      ];
-      for (const dir of dirs) {
-        const nx = cx + dir.dx;
-        const ny = cy + dir.dy;
-        if (nx >= 0 && nx < gameState.mapWidth && ny >= 0 && ny < gameState.mapHeight) {
-          const c = gameState.mapCells[ny][nx];
-          console.log(`[地图测试] ${dir.name} (${nx},${ny}): type=${c.type} isReachable=${c.isReachable} isCleared=${c.isCleared} isRevealed=${c.isRevealed} visited=${c.visited} resolvedType=${c.resolvedType}`);
-        }
-      }
+      this.debugMovementState('T键无可达格');
       return;
     }
 
@@ -905,5 +955,100 @@ export class MapScene extends Phaser.Scene {
 
     // 直接调用移动逻辑（跳过弹窗，只处理移动）
     this.onCellClick(target.x, target.y);
+  }
+
+  /** 查找弹窗中的第一个按钮（Text 对象） */
+  private findFirstPopupButton(): Phaser.GameObjects.Text | null {
+    for (const obj of this.popupObjects) {
+      if (obj instanceof Phaser.GameObjects.Text && obj.input) {
+        // 排除标题和描述（它们没有 input），只找按钮
+        return obj as Phaser.GameObjects.Text;
+      }
+    }
+    return null;
+  }
+
+  /** Y键：自动连续移动测试（100步） */
+  private autoMoveTest(): void {
+    if (this.isAutoMoving) {
+      console.log('[地图调试] 自动移动测试已在进行中，忽略重复触发');
+      return;
+    }
+
+    this.isAutoMoving = true;
+    this.debugStep = 0;
+    console.log('[地图调试] 开始自动移动测试（100步）');
+
+    this.autoMoveStep(0);
+  }
+
+  /** 自动移动单步 */
+  private autoMoveStep(step: number): void {
+    if (step >= 100) {
+      console.log('[地图调试] 自动移动测试完成（100步已执行）');
+      this.isAutoMoving = false;
+      return;
+    }
+
+    // 检查场景是否还活跃（可能已切换到战斗场景）
+    if (!this.scene.isActive()) {
+      console.log('[地图调试] 自动移动测试停止：场景已切换');
+      this.isAutoMoving = false;
+      return;
+    }
+
+    const gameState = getGameState();
+
+    // 如果有弹窗，自动点击第一个按钮
+    if (this.popupObjects.length > 0) {
+      console.log(`[自动移动测试] step=${step} 检测到弹窗，自动点击第一个按钮`);
+      const btn = this.findFirstPopupButton();
+      if (btn) {
+        btn.emit('pointerdown');
+        // 弹窗处理完后继续下一步
+        this.time.delayedCall(500, () => this.autoMoveStep(step));
+        return;
+      } else {
+        // 找不到按钮，关闭弹窗
+        this.closePopup();
+        this.time.delayedCall(500, () => this.autoMoveStep(step));
+        return;
+      }
+    }
+
+    // 收集可达格
+    const reachable: { x: number; y: number }[] = [];
+    for (let y = 0; y < gameState.mapHeight; y++) {
+      for (let x = 0; x < gameState.mapWidth; x++) {
+        if (gameState.mapCells[y][x].isReachable) {
+          reachable.push({ x, y });
+        }
+      }
+    }
+
+    console.log(`[自动移动测试] step=${step} current=(${gameState.currentPosition.x},${gameState.currentPosition.y}) reachableCount=${reachable.length} popupObjects=${this.popupObjects.length}`);
+
+    if (reachable.length === 0) {
+      console.log('[自动移动测试] reachableCount=0，无法继续移动，停止测试');
+      this.debugMovementState('自动移动测试停止-reachableCount=0');
+      this.isAutoMoving = false;
+      return;
+    }
+
+    // 随机选择一个可达格
+    const target = reachable[Math.floor(Math.random() * reachable.length)];
+
+    // 调用移动逻辑
+    this.onCellClick(target.x, target.y);
+
+    // 检查移动后是否进入了战斗场景
+    if (!this.scene.isActive()) {
+      console.log('[地图调试] 自动移动测试停止：已进入战斗场景');
+      this.isAutoMoving = false;
+      return;
+    }
+
+    // 延迟后执行下一步
+    this.time.delayedCall(500, () => this.autoMoveStep(step + 1));
   }
 }

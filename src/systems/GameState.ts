@@ -565,7 +565,62 @@ export function updateReachableCells(state: GameState): void {
     }
   }
 
+  // reachableCount=0 兜底机制：如果四周全部是障碍，强制设置非障碍格为可达
+  if (reachableCells.length === 0) {
+    console.log('[地图调试] reachableCount=0，检查四周格子...');
+    let forcedCount = 0;
+    for (const dir of directions) {
+      const nx = x + dir.dx;
+      const ny = y + dir.dy;
+      if (nx >= 0 && nx < state.mapWidth && ny >= 0 && ny < state.mapHeight) {
+        const cell = mapCells[ny][nx];
+        if (cell.type === 'obstacle') {
+          // 强制将障碍格设为可达（兜底）
+          cell.isReachable = true;
+          reachableCells.push({ x: nx, y: ny });
+          forcedCount++;
+          console.log(`[地图调试]   强制设置 (${nx},${ny}) 为可达（原为障碍）`);
+        }
+      }
+    }
+    if (forcedCount > 0) {
+      console.log(`[地图兜底] 修复 reachableCount=0，强制设置 ${forcedCount} 个格子为可达`);
+    }
+  }
+
   console.log('[地图] 可移动格子:', reachableCells);
+
+  // 非障碍可达比例检查：BFS 计算从起点可达的非障碍格总数
+  const bfsVisited = new Set<string>();
+  const bfsQueue = [{ x: state.startPosition.x, y: state.startPosition.y }];
+  bfsVisited.add(`${state.startPosition.x},${state.startPosition.y}`);
+
+  while (bfsQueue.length > 0) {
+    const pos = bfsQueue.shift()!;
+    for (const dir of directions) {
+      const nx = pos.x + dir.dx;
+      const ny = pos.y + dir.dy;
+      const key = `${nx},${ny}`;
+      if (nx >= 0 && nx < state.mapWidth && ny >= 0 && ny < state.mapHeight &&
+          !bfsVisited.has(key) && mapCells[ny][nx].type !== 'obstacle') {
+        bfsVisited.add(key);
+        bfsQueue.push({ x: nx, y: ny });
+      }
+    }
+  }
+
+  // 计算总非障碍格数
+  let totalNonObstacle = 0;
+  for (const row of mapCells) {
+    for (const cell of row) {
+      if (cell.type !== 'obstacle') totalNonObstacle++;
+    }
+  }
+
+  const reachableRatio = totalNonObstacle > 0 ? bfsVisited.size / totalNonObstacle : 0;
+  if (reachableRatio < 0.85) {
+    console.log(`[地图调试] 警告：非障碍可达比例偏低！BFS可达=${bfsVisited.size} 总非障碍=${totalNonObstacle} 比例=${(reachableRatio * 100).toFixed(1)}%`);
+  }
 }
 
 // 移动到新格子
