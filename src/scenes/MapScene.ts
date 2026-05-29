@@ -64,6 +64,13 @@ export class MapScene extends Phaser.Scene {
         case 'd': case 'arrowright': this.moveCamera(this.scrollSpeed, 0); break;
         case ' ': this.centerCameraOnPlayer(); break;
         case 't': this.debugRandomMove(); break;
+        case 'escape':
+          // Escape 键关闭弹窗（调试用）
+          if (this.popupObjects.length > 0) {
+            console.log('[地图] Escape 关闭弹窗');
+            this.closePopup();
+          }
+          break;
         default: return;
       }
     });
@@ -852,6 +859,13 @@ export class MapScene extends Phaser.Scene {
 
   /** T键：随机移动到一个可达格 */
   private debugRandomMove(): void {
+    // 如果有弹窗打开，先关闭
+    if (this.popupObjects.length > 0) {
+      console.log('[地图测试] 弹窗打开中，先关闭弹窗');
+      this.closePopup();
+      return;
+    }
+
     const gameState = getGameState();
     const reachable: { x: number; y: number }[] = [];
 
