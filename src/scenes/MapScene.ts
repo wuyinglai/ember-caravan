@@ -5,6 +5,7 @@ import { CHARACTER_DEFS } from '../data/characters';
 export class MapScene extends Phaser.Scene {
   private cellGraphics: Phaser.GameObjects.Graphics[][] = [];
   private cellTexts: Phaser.GameObjects.Text[][] = [];
+  private cellHitAreas: Phaser.GameObjects.Zone[][] = [];
   private resourceTexts: { [key: string]: Phaser.GameObjects.Text } = {};
   private cellSize = 60;
   private cellGap = 8;
@@ -154,6 +155,7 @@ export class MapScene extends Phaser.Scene {
     for (let y = 0; y < gameState.mapHeight; y++) {
       this.cellGraphics[y] = [];
       this.cellTexts[y] = [];
+      this.cellHitAreas[y] = [];
 
       for (let x = 0; x < gameState.mapWidth; x++) {
         const cell = gameState.mapCells[y][x];
@@ -172,25 +174,28 @@ export class MapScene extends Phaser.Scene {
         }).setOrigin(0.5);
         this.cellTexts[y][x] = text;
 
-        // 可点击区域
-        if (cell.isReachable) {
-          const hitArea = this.add.zone(px + this.cellSize / 2, py + this.cellSize / 2, this.cellSize, this.cellSize)
-            .setInteractive({ useHandCursor: true });
+        // 给所有格子创建点击区域（可到达的格子显示手型光标）
+        const hitArea = this.add.zone(px + this.cellSize / 2, py + this.cellSize / 2, this.cellSize, this.cellSize)
+          .setInteractive({ useHandCursor: cell.isReachable });
+        this.cellHitAreas[y][x] = hitArea;
 
-          hitArea.on('pointerover', () => {
+        // 悬停效果（仅可到达格子）
+        hitArea.on('pointerover', () => {
+          if (cell.isReachable) {
             graphics.clear();
             this.drawCellHover(graphics, cell, px, py);
-          });
+          }
+        });
 
-          hitArea.on('pointerout', () => {
-            graphics.clear();
-            this.drawCell(graphics, cell, px, py);
-          });
+        hitArea.on('pointerout', () => {
+          graphics.clear();
+          this.drawCell(graphics, cell, px, py);
+        });
 
-          hitArea.on('pointerdown', () => {
-            this.onCellClick(x, y);
-          });
-        }
+        // 点击事件
+        hitArea.on('pointerdown', () => {
+          this.onCellClick(x, y);
+        });
       }
     }
   }
@@ -293,23 +298,47 @@ export class MapScene extends Phaser.Scene {
     const gameState = getGameState();
     const cell = gameState.mapCells[y][x];
 
-    if (!cell.isReachable) return;
+    if (!cell.isReachable) {
+      console.log(`[地图] 点击 (${x}, ${y}) 不可到达`);
+      return;
+    }
 
     // 执行移动
     const moved = moveToCell(gameState, x, y);
-    if (!moved) return;
+    if (!moved) {
+      console.log(`[地图] 移动到 (${x}, ${y}) 失败`);
+      return;
+    }
 
     setGameState(gameState);
+    console.log(`[地图] 移动到 (${x}, ${y})，day=${gameState.day}, food=${gameState.food}`);
+
     this.updateResourceDisplay();
 
     // 重新绘制所有格子
     this.redrawMap();
+
+    // 更新所有 hitArea 的 cursor 状态
+    this.updateHitAreaCursors();
 
     // 检查游戏状态
     if (this.checkGameStatus(gameState)) return;
 
     // 处理格子事件
     this.handleCellEvent(cell);
+  }
+
+  private updateHitAreaCursors(): void {
+    const gameState = getGameState();
+    for (let y = 0; y < gameState.mapHeight; y++) {
+      for (let x = 0; x < gameState.mapWidth; x++) {
+        const cell = gameState.mapCells[y][x];
+        const hitArea = this.cellHitAreas[y][x];
+        if (hitArea) {
+          hitArea.setInteractive({ useHandCursor: cell.isReachable });
+        }
+      }
+    }
   }
 
   private redrawMap(): void {
