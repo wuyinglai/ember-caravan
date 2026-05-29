@@ -8,7 +8,7 @@ export class BattleManager {
   private selectedEnemy: number | null = null;
   private onBattleEnd: ((victory: boolean) => void) | null = null;
   
-  // 战斗日志
+  // 调试日志
   logs: string[] = [];
   
   constructor(
@@ -23,7 +23,8 @@ export class BattleManager {
       maxActionPoints: 3,
       turn: 1,
       caravanArmor: 0,
-      morale: 3,
+      caravanDurability: 45,
+      caravanMaxDurability: 45,
     };
     
     if (onBattleEnd) {
@@ -35,20 +36,20 @@ export class BattleManager {
   
   // 开始战斗
   startBattle(): void {
-    this.log('战斗开始！');
+    this.log('=== 战斗开始 ===');
+    this.log(`商队耐久: ${this.state.caravanDurability}/${this.state.caravanMaxDurability}`);
     
     // 初始化每个角色的牌组
     for (const char of this.state.characters) {
-      if (!char.isWounded && !char.isDead) {
-        DeckManager.initCharacterDeck(char);
-        this.log(`${char.def.name}加入战斗`);
-      }
+      DeckManager.initCharacterDeck(char);
+      this.log(`${char.def.name} 加入战斗 (HP: ${char.currentHp}/${char.def.maxHp})`);
+      this.log(`  初始手牌: ${char.hand.map(c => c.name).join(', ')}`);
     }
     
     // 设置敌人初始意图
     this.updateEnemyIntents();
     
-    this.log(`第${this.state.turn}回合开始`);
+    this.log(`第 ${this.state.turn} 回合开始，行动力: ${this.state.actionPoints}/${this.state.maxActionPoints}`);
   }
   
   // 更新敌人意图
@@ -64,13 +65,13 @@ export class BattleManager {
   // 选择卡牌
   selectCard(charIndex: number, cardIndex: number): boolean {
     const char = this.state.characters[charIndex];
-    if (!char || char.isWounded || char.isDead) return false;
+    if (!char) return false;
     
     const card = char.hand[cardIndex];
     if (!card) return false;
     
     if (card.cost > this.state.actionPoints) {
-      this.log('行动力不足！');
+      this.log(`行动力不足！需要 ${card.cost} 点，当前 ${this.state.actionPoints} 点`);
       return false;
     }
     
@@ -107,14 +108,14 @@ export class BattleManager {
     
     // 消耗行动力
     this.state.actionPoints -= card.cost;
+    this.log(`${char.def.name} 使用【${card.name}】，消耗 ${card.cost} 行动力`);
+    this.log(`  剩余行动力: ${this.state.actionPoints}`);
     
     // 从手牌移除
     DeckManager.playCard(char, cardIndex);
     
     // 执行效果
     this.executeCardEffects(char, card, this.selectedEnemy);
-    
-    this.log(`${char.def.name}使用了【${card.name}】`);
     
     // 清除选择
     this.selectedCard = null;
@@ -129,23 +130,31 @@ export class BattleManager {
   // 执行卡牌效果
   private executeCardEffects(char: CharacterState, card: CardDef, targetEnemyIndex: number | null): void {
     for (const effect of card.effects) {
-      this.executeEffect(char, effect, targetEnemyIndex);
+      this.executeEffect(char, card, effect, targetEnemyIndex);
     }
   }
   
   // 执行单个效果
-  private executeEffect(char: CharacterState, effect: CardEffect, targetEnemyIndex: number | null): void {
+  private executeEffect(char: CharacterState, card: CardDef, effect: CardEffect, targetEnemyIndex: number | null): void {
     switch (effect.type) {
       case 'damage':
         if (targetEnemyIndex !== null) {
           const enemy = this.state.enemies[targetEnemyIndex];
           if (enemy && enemy.currentHp > 0) {
             let damage = effect.value;
+            
             // 检查标记加成（射手被动）
             if (char.def.id === 'sharpshooter' && enemy.marks > 0) {
               damage += 2;
-              this.log('射手被动触发：标记加成+2伤害');
+              this.log(`  射手被动触发！标记加成 +2 伤害`);
             }
+            
+            // 护路人盾击特殊效果
+            if (char.def.id === 'guardian' && card.id === 'guardian_shield_bash' && char.armor > 0) {
+              damage += 4;
+              this.log(`  盾击特效触发！有护甲额外 +4 伤害`);
+            }
+            
             this.dealDamageToEnemy(enemy, damage);
           }
         }
@@ -154,37 +163,49 @@ export class BattleManager {
       case 'armor':
         if (effect.target === 'self') {
           char.armor += effect.value;
-          this.log(`${char.def.name}获得${effect.value}点护甲`);
+          this.log(`  ${char.def.name} 获得 ${effect.value} 点护甲`);
           
           // 护路人被动：第一次获得护甲时，商队也获得2点护甲
-          if (char.def.id === 'guardian' && this.state.turn === 1 && this.state.caravanArmor === 0) {
+          if (char.def.id === 'guardian' && this.state.caravanArmor === 0) {
             this.state.caravanArmor += 2;
-            this.log('护路人被动：商队获得2点护甲');
+            this.log(`  护路人被动触发！商队护甲 +2`);
           }
         } else if (effect.target === 'all_allies') {
           for (const c of this.state.characters) {
-            if (!c.isWounded && !c.isDead) {
-              c.armor += effect.value;
-            }
+            c.armor += effect.value;
           }
-          this.log(`全队获得${effect.value}点护甲`);
-        }
-        break;
-        
-      case 'heal':
-        if (effect.target === 'ally') {
-          // 治疗生命最低的队友
+          this.log(`  全队获得 ${effect.value} 点护甲`);
+        } else if (effect.target === 'ally') {
+          // 拦截：给生命最低的队友护甲
           let lowestHpChar: CharacterState | null = null;
           for (const c of this.state.characters) {
-            if (!c.isWounded && !c.isDead && c.currentHp < c.def.maxHp) {
+            if (c.currentHp > 0) {
               if (!lowestHpChar || c.currentHp < lowestHpChar.currentHp) {
                 lowestHpChar = c;
               }
             }
           }
           if (lowestHpChar) {
-            lowestHpChar.currentHp = Math.min(lowestHpChar.def.maxHp, lowestHpChar.currentHp + effect.value);
-            this.log(`${lowestHpChar.def.name}恢复${effect.value}点生命`);
+            lowestHpChar.armor += effect.value;
+            this.log(`  ${lowestHpChar.def.name} 获得 ${effect.value} 点护甲`);
+          }
+        }
+        break;
+        
+      case 'heal':
+        if (effect.target === 'ally') {
+          let lowestHpChar: CharacterState | null = null;
+          for (const c of this.state.characters) {
+            if (c.currentHp > 0 && c.currentHp < c.def.maxHp) {
+              if (!lowestHpChar || c.currentHp < lowestHpChar.currentHp) {
+                lowestHpChar = c;
+              }
+            }
+          }
+          if (lowestHpChar) {
+            const healAmount = Math.min(effect.value, lowestHpChar.def.maxHp - lowestHpChar.currentHp);
+            lowestHpChar.currentHp += healAmount;
+            this.log(`  ${lowestHpChar.def.name} 恢复 ${healAmount} 点生命`);
           }
         }
         break;
@@ -194,34 +215,56 @@ export class BattleManager {
           const enemy = this.state.enemies[targetEnemyIndex];
           if (enemy) {
             enemy.marks += effect.value;
-            this.log(`${enemy.def.name}获得${effect.value}层标记`);
+            this.log(`  ${enemy.def.name} 获得 ${effect.value} 层标记`);
           }
         }
         break;
         
       case 'repair_caravan':
-        // 简化处理：阶段1先不实现商队耐久系统
-        this.log('商队耐久系统将在后续阶段实现');
+        if (effect.value > 0) {
+          const repairAmount = Math.min(effect.value, this.state.caravanMaxDurability - this.state.caravanDurability);
+          this.state.caravanDurability += repairAmount;
+          this.log(`  商队耐久恢复 ${repairAmount} 点`);
+          this.log(`  商队耐久: ${this.state.caravanDurability}/${this.state.caravanMaxDurability}`);
+          
+          // 修补师被动：第一次修理时额外恢复3点
+          if (char.def.id === 'repairman' && effect.value === 6) {
+            const bonusRepair = Math.min(3, this.state.caravanMaxDurability - this.state.caravanDurability);
+            this.state.caravanDurability += bonusRepair;
+            this.log(`  修补师被动触发！额外恢复 ${bonusRepair} 点`);
+          }
+        } else if (effect.value < 0) {
+          this.state.caravanDurability = Math.max(0, this.state.caravanDurability + effect.value);
+          this.log(`  商队耐久 -${Math.abs(effect.value)}`);
+          this.log(`  商队耐久: ${this.state.caravanDurability}/${this.state.caravanMaxDurability}`);
+        }
         break;
         
       case 'draw':
         DeckManager.drawCards(char, effect.value);
-        this.log(`${char.def.name}抽了${effect.value}张牌`);
+        this.log(`  ${char.def.name} 抽了 ${effect.value} 张牌`);
+        this.log(`  当前手牌: ${char.hand.map(c => c.name).join(', ')}`);
         break;
         
       case 'add_action':
         this.state.actionPoints += effect.value;
-        this.log(`获得${effect.value}点额外行动力`);
-        break;
-        
-      case 'morale':
-        this.state.morale += effect.value;
-        this.log(`士气${effect.value > 0 ? '+' : ''}${effect.value}`);
+        this.log(`  获得 ${effect.value} 点额外行动力`);
+        this.log(`  行动力: ${this.state.actionPoints}`);
         break;
         
       case 'special':
-        // 特殊效果简化处理
-        this.log('特殊效果触发');
+        // 压制：敌人下次攻击伤害减少（简化处理）
+        if (targetEnemyIndex !== null && card.id === 'sharpshooter_suppress') {
+          this.log(`  压制：敌人下次攻击伤害减少 4 点`);
+        }
+        // 精准射击特殊效果
+        if (targetEnemyIndex !== null && card.id === 'sharpshooter_precise_shot') {
+          const enemy = this.state.enemies[targetEnemyIndex];
+          if (enemy && enemy.marks > 0) {
+            enemy.marks -= 1;
+            this.log(`  精准射击：移除 1 层标记`);
+          }
+        }
         break;
     }
   }
@@ -233,20 +276,22 @@ export class BattleManager {
       const absorbed = Math.min(enemy.armor, damage);
       enemy.armor -= absorbed;
       damage -= absorbed;
+      if (absorbed > 0) this.log(`  ${enemy.def.name} 护甲吸收 ${absorbed} 点伤害`);
     }
     
     // 扣生命
+    const actualDamage = Math.max(0, enemy.currentHp - damage);
     enemy.currentHp = Math.max(0, enemy.currentHp - damage);
-    this.log(`${enemy.def.name}受到${damage}点伤害`);
+    this.log(`  ${enemy.def.name} 受到 ${damage} 点伤害，剩余 ${enemy.currentHp}/${enemy.def.maxHp}`);
     
     if (enemy.currentHp <= 0) {
-      this.log(`${enemy.def.name}被击败！`);
+      this.log(`  ${enemy.def.name} 被击败！`);
     }
   }
   
-  // 结束回合
+  // 结束玩家回合
   endTurn(): void {
-    this.log('玩家回合结束');
+    this.log(`--- 玩家回合结束 ---`);
     
     // 敌人行动
     this.enemyTurn();
@@ -270,16 +315,21 @@ export class BattleManager {
     
     // 每个角色弃牌并抽新牌
     for (const char of this.state.characters) {
-      if (!char.isWounded && !char.isDead) {
+      if (char.currentHp > 0) {
+        const beforeCount = char.hand.length;
         DeckManager.discardHand(char);
         DeckManager.drawCards(char, 2);
+        this.log(`${char.def.name} 回合开始，弃${beforeCount}牌，抽2张`);
+        this.log(`  手牌: ${char.hand.map(c => c.name).join(', ')}`);
       }
     }
     
     // 更新敌人意图
     this.updateEnemyIntents();
     
-    this.log(`第${this.state.turn}回合开始`);
+    this.log(`=== 第 ${this.state.turn} 回合开始 ===`);
+    this.log(`行动力: ${this.state.actionPoints}/${this.state.maxActionPoints}`);
+    this.log(`商队耐久: ${this.state.caravanDurability}/${this.state.caravanMaxDurability}`);
   }
   
   // 敌人回合
@@ -288,20 +338,39 @@ export class BattleManager {
       if (enemy.currentHp <= 0 || !enemy.nextAction) continue;
       
       const action = enemy.nextAction;
+      this.log(`${enemy.def.name} 行动: ${action.name}`);
       
+      // 如果是攻击商队
+      if (action.target === 'caravan' && action.damage) {
+        let damage = action.damage;
+        
+        // 先扣商队护甲
+        if (this.state.caravanArmor > 0) {
+          const absorbed = Math.min(this.state.caravanArmor, damage);
+          this.state.caravanArmor -= absorbed;
+          damage -= absorbed;
+        }
+        
+        // 扣商队耐久
+        this.state.caravanDurability = Math.max(0, this.state.caravanDurability - damage);
+        this.log(`  商队受到 ${action.damage} 点伤害`);
+        this.log(`  商队耐久: ${this.state.caravanDurability}/${this.state.caravanMaxDurability}`);
+        continue;
+      }
+      
+      // 攻击角色
       if (action.damage && action.damage > 0) {
-        // 确定目标
         let targetChar: CharacterState | null = null;
         
         if (action.target === 'random_character') {
-          const availableChars = this.state.characters.filter(c => !c.isWounded && !c.isDead);
-          if (availableChars.length > 0) {
-            targetChar = availableChars[Math.floor(Math.random() * availableChars.length)];
+          const aliveChars = this.state.characters.filter(c => c.currentHp > 0);
+          if (aliveChars.length > 0) {
+            targetChar = aliveChars[Math.floor(Math.random() * aliveChars.length)];
           }
         } else if (action.target === 'lowest_hp_character') {
           let lowestHp = Infinity;
           for (const c of this.state.characters) {
-            if (!c.isWounded && !c.isDead && c.currentHp < lowestHp) {
+            if (c.currentHp > 0 && c.currentHp < lowestHp) {
               lowestHp = c.currentHp;
               targetChar = c;
             }
@@ -309,7 +378,6 @@ export class BattleManager {
         }
         
         if (targetChar) {
-          // 造成伤害
           let damage = action.damage;
           
           // 先扣护甲
@@ -317,33 +385,20 @@ export class BattleManager {
             const absorbed = Math.min(targetChar.armor, damage);
             targetChar.armor -= absorbed;
             damage -= absorbed;
+            if (absorbed > 0) this.log(`  ${targetChar.def.name} 护甲吸收 ${absorbed} 点`);
           }
           
           // 扣生命
           targetChar.currentHp = Math.max(0, targetChar.currentHp - damage);
-          this.log(`${enemy.def.name}的${action.name}对${targetChar.def.name}造成${action.damage}点伤害`);
+          this.log(`  ${enemy.def.name} 对 ${targetChar.def.name} 造成 ${action.damage} 点伤害`);
+          this.log(`  ${targetChar.def.name} 剩余 ${targetChar.currentHp}/${targetChar.def.maxHp} HP`);
           
-          // 检查角色是否重伤
-          if (targetChar.currentHp <= 0 && !targetChar.isWounded) {
-            this.applyGraveWound(targetChar);
+          // 角色倒下
+          if (targetChar.currentHp <= 0) {
+            this.log(`  ${targetChar.def.name} 倒下了！`);
           }
         }
       }
-    }
-  }
-  
-  // 应用重伤
-  private applyGraveWound(char: CharacterState): void {
-    char.isWounded = true;
-    char.graveWounds++;
-    char.currentHp = 1;
-    char.restNodes = 3;
-    
-    this.log(`${char.def.name}重伤！需要休息3个节点`);
-    
-    if (char.graveWounds >= 3) {
-      char.isDead = true;
-      this.log(`${char.def.name}本局死亡/离队`);
     }
   }
   
@@ -352,17 +407,34 @@ export class BattleManager {
     // 检查是否所有敌人都被击败
     const allEnemiesDead = this.state.enemies.every(e => e.currentHp <= 0);
     if (allEnemiesDead) {
-      this.log('战斗胜利！');
+      this.log('=============================');
+      this.log('       战 斗 胜 利 ！');
+      this.log('=============================');
       if (this.onBattleEnd) {
         this.onBattleEnd(true);
       }
       return true;
     }
     
-    // 检查是否所有角色都重伤或死亡
-    const allCharsDown = this.state.characters.every(c => c.isWounded || c.isDead);
+    // 检查是否所有角色都倒下
+    const allCharsDown = this.state.characters.every(c => c.currentHp <= 0);
     if (allCharsDown) {
-      this.log('战斗失败...');
+      this.log('=============================');
+      this.log('       战 斗 失 败 ...');
+      this.log('       所有角色倒下');
+      this.log('=============================');
+      if (this.onBattleEnd) {
+        this.onBattleEnd(false);
+      }
+      return true;
+    }
+    
+    // 检查商队耐久
+    if (this.state.caravanDurability <= 0) {
+      this.log('=============================');
+      this.log('       战 斗 失 败 ...');
+      this.log('       商队被摧毁');
+      this.log('=============================');
       if (this.onBattleEnd) {
         this.onBattleEnd(false);
       }
@@ -380,7 +452,7 @@ export class BattleManager {
   
   // 获取可用的角色（用于UI显示）
   getActiveCharacters(): CharacterState[] {
-    return this.state.characters.filter(c => !c.isWounded && !c.isDead);
+    return this.state.characters.filter(c => c.currentHp > 0);
   }
   
   // 获取存活的敌人

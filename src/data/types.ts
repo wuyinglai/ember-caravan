@@ -83,7 +83,8 @@ export interface BattleState {
   maxActionPoints: number;
   turn: number;
   caravanArmor: number;
-  morale: number;
+  caravanDurability: number;
+  caravanMaxDurability: number;
 }
 
 // 商队资源
