@@ -1,7 +1,7 @@
 import Phaser from 'phaser';
 import {
   getGameState, setGameState, moveToCell, checkGameOver, checkVictory,
-  MapCell, CellType, ResolvedType, resetGameState, resolveQuestionCell
+  MapCell, CellType, ResolvedType, resetGameState, resolveQuestionCell, updateReachableCells
 } from '../systems/GameState';
 import { CHARACTER_DEFS } from '../data/characters';
 
@@ -10,8 +10,12 @@ export class MapScene extends Phaser.Scene {
   private cellTexts: Phaser.GameObjects.Text[][] = [];
   private cellHitAreas: Phaser.GameObjects.Zone[][] = [];
   private resourceTexts: { [key: string]: Phaser.GameObjects.Text } = {};
-  private cellSize = 50;
+  private cellSize = 42;
   private cellGap = 4;
+  private mapContainer!: Phaser.GameObjects.Container;
+  private cameraOffsetX = 0;
+  private cameraOffsetY = 0;
+  private scrollSpeed = 40;
 
   constructor() {
     super({ key: 'MapScene' });
@@ -29,37 +33,32 @@ export class MapScene extends Phaser.Scene {
     // 获取游戏状态
     const gameState = getGameState();
 
-    // 创建资源显示
+    // 创建地图容器（所有格子放入此容器，通过移动容器实现视角滚动）
+    this.mapContainer = this.add.container(0, 30);
+
+    // 创建资源显示（固定UI层，不加到mapContainer）
     this.createResourceDisplay(w, h);
 
-    // 计算地图起始位置（居中）
-    const mapWidth = gameState.mapWidth * (this.cellSize + this.cellGap) - this.cellGap;
-    const mapHeight = gameState.mapHeight * (this.cellSize + this.cellGap) - this.cellGap;
-    const startX = (w - mapWidth) / 2;
-    const startY = (h - mapHeight) / 2 + 30;
+    // 创建地图格子（加到mapContainer）
+    this.createMapGrid(gameState);
 
-    // 创建地图格子
-    this.createMapGrid(startX, startY, gameState);
+    // 创建队伍显示（固定UI层，不加到mapContainer）
+    this.createPartyDisplay(gameState);
 
-    // 创建队伍显示
-    this.createPartyDisplay(startX, startY - 50, gameState);
-
-    // 键盘方向键移动
+    // WASD/方向键移动视角（不移动玩家）
     this.input.keyboard?.on('keydown', (event: KeyboardEvent) => {
-      const gameState = getGameState();
-      const { x, y } = gameState.currentPosition;
-      let nx = x, ny = y;
-      switch (event.key) {
-        case 'ArrowUp': ny = y - 1; break;
-        case 'ArrowDown': ny = y + 1; break;
-        case 'ArrowLeft': nx = x - 1; break;
-        case 'ArrowRight': nx = x + 1; break;
+      switch (event.key.toLowerCase()) {
+        case 'w': case 'arrowup':    this.moveCamera(0, -this.scrollSpeed); break;
+        case 's': case 'arrowdown':  this.moveCamera(0, this.scrollSpeed); break;
+        case 'a': case 'arrowleft':  this.moveCamera(-this.scrollSpeed, 0); break;
+        case 'd': case 'arrowright': this.moveCamera(this.scrollSpeed, 0); break;
+        case ' ': this.centerCameraOnPlayer(); break;
         default: return;
       }
-      if (nx >= 0 && nx < gameState.mapWidth && ny >= 0 && ny < gameState.mapHeight) {
-        this.onCellClick(nx, ny);
-      }
     });
+
+    // 初始化时自动居中到玩家位置
+    this.centerCameraOnPlayer();
 
     // 检查游戏状态
     this.checkGameStatus(gameState);
@@ -95,13 +94,18 @@ export class MapScene extends Phaser.Scene {
       fontSize: '14px', color: caravanColor, fontFamily: 'monospace',
     });
 
+    // 金币
+    this.resourceTexts['gold'] = this.add.text(startX + spacing * 4, y, `💰 ${gameState.gold}`, {
+      fontSize: '14px', color: '#ffdd44', fontFamily: 'monospace',
+    });
+
     // 提示文字
-    this.add.text(w / 2, h - 20, '方向键移动 | 点击问号格探索', {
+    this.add.text(w / 2, h - 20, 'WASD/方向键移动视角 | Space回到商队 | 点击格子移动', {
       fontSize: '12px', color: '#888888', fontFamily: 'monospace',
     }).setOrigin(0.5);
   }
 
-  private createMapGrid(startX: number, startY: number, gameState: ReturnType<typeof getGameState>): void {
+  private createMapGrid(gameState: ReturnType<typeof getGameState>): void {
     for (let y = 0; y < gameState.mapHeight; y++) {
       this.cellGraphics[y] = [];
       this.cellTexts[y] = [];
@@ -109,13 +113,14 @@ export class MapScene extends Phaser.Scene {
 
       for (let x = 0; x < gameState.mapWidth; x++) {
         const cell = gameState.mapCells[y][x];
-        const px = startX + x * (this.cellSize + this.cellGap);
-        const py = startY + y * (this.cellSize + this.cellGap);
+        const px = x * (this.cellSize + this.cellGap);
+        const py = y * (this.cellSize + this.cellGap);
 
         // 创建格子图形
         const graphics = this.add.graphics();
         this.drawCell(graphics, cell, px, py);
         this.cellGraphics[y][x] = graphics;
+        this.mapContainer.add(graphics);
 
         // 格子内容图标
         const icon = this.getCellIcon(cell);
@@ -123,11 +128,13 @@ export class MapScene extends Phaser.Scene {
           fontSize: '20px',
         }).setOrigin(0.5);
         this.cellTexts[y][x] = text;
+        this.mapContainer.add(text);
 
         // 给所有格子创建点击区域
         const hitArea = this.add.zone(px + this.cellSize / 2, py + this.cellSize / 2, this.cellSize, this.cellSize)
           .setInteractive({ useHandCursor: cell.isReachable });
         this.cellHitAreas[y][x] = hitArea;
+        this.mapContainer.add(hitArea);
 
         // 悬停效果
         hitArea.on('pointerover', () => {
@@ -208,6 +215,15 @@ export class MapScene extends Phaser.Scene {
     // 补给点（提前可见）
     if (cell.type === 'supply') return '📦';
 
+    // 奖励点（提前可见）
+    if (cell.type === 'reward') return cell.isCleared ? '✓' : '🎁';
+
+    // 目标点（提前可见）
+    if (cell.isGoal) {
+      const gameState = getGameState();
+      return gameState.expeditionGoal === 'boss' ? '👹' : '🏠';
+    }
+
     // 已揭示的问号格
     if (cell.isRevealed && cell.resolvedType) {
       switch (cell.resolvedType) {
@@ -228,9 +244,44 @@ export class MapScene extends Phaser.Scene {
     return '';
   }
 
+  private moveCamera(dx: number, dy: number): void {
+    const gameState = getGameState();
+    const mapPixelW = gameState.mapWidth * (this.cellSize + this.cellGap) - this.cellGap;
+    const mapPixelH = gameState.mapHeight * (this.cellSize + this.cellGap) - this.cellGap;
+    const screenW = this.scale.width;
+    const screenH = this.scale.height;
+
+    this.cameraOffsetX = Math.max(-(mapPixelW - screenW + 40), Math.min(40, this.cameraOffsetX + dx));
+    this.cameraOffsetY = Math.max(-(mapPixelH - screenH + 40), Math.min(40, this.cameraOffsetY + dy));
+
+    this.mapContainer.setPosition(this.cameraOffsetX, this.cameraOffsetY + 30);
+  }
+
+  private centerCameraOnPlayer(): void {
+    const gameState = getGameState();
+    const mapPixelW = gameState.mapWidth * (this.cellSize + this.cellGap) - this.cellGap;
+    const mapPixelH = gameState.mapHeight * (this.cellSize + this.cellGap) - this.cellGap;
+    const screenW = this.scale.width;
+    const screenH = this.scale.height;
+
+    const playerPixelX = gameState.currentPosition.x * (this.cellSize + this.cellGap) + this.cellSize / 2;
+    const playerPixelY = gameState.currentPosition.y * (this.cellSize + this.cellGap) + this.cellSize / 2;
+
+    this.cameraOffsetX = Math.round(screenW / 2 - playerPixelX);
+    this.cameraOffsetY = Math.round(screenH / 2 - playerPixelY + 30);
+
+    // 限制边界
+    this.cameraOffsetX = Math.max(-(mapPixelW - screenW + 40), Math.min(40, this.cameraOffsetX));
+    this.cameraOffsetY = Math.max(-(mapPixelH - screenH + 40), Math.min(40, this.cameraOffsetY));
+
+    this.mapContainer.setPosition(this.cameraOffsetX, this.cameraOffsetY);
+  }
+
   private onCellClick(x: number, y: number): void {
     const gameState = getGameState();
     const cell = gameState.mapCells[y][x];
+
+    console.log('[地图] 点击格子:', { x, y, type: cell.type, isReachable: cell.isReachable, isCleared: cell.isCleared, resolvedType: cell.resolvedType });
 
     // 障碍不可移动
     if (cell.type === 'obstacle') {
@@ -252,11 +303,12 @@ export class MapScene extends Phaser.Scene {
     }
 
     setGameState(gameState);
-    console.log(`[地图] 移动到 (${x}, ${y})，day=${gameState.day}`);
+    console.log(`[地图] 移动到 (${x}, ${y}) 成功，day=${gameState.day}`);
 
-    this.updateResourceDisplay();
+    // 立即刷新地图显示
     this.redrawMap();
     this.updateHitAreaCursors();
+    this.updateResourceDisplay();
 
     // 检查游戏状态
     if (this.checkGameStatus(gameState)) return;
@@ -280,16 +332,12 @@ export class MapScene extends Phaser.Scene {
 
   private redrawMap(): void {
     const gameState = getGameState();
-    const mapWidth = gameState.mapWidth * (this.cellSize + this.cellGap) - this.cellGap;
-    const mapHeight = gameState.mapHeight * (this.cellSize + this.cellGap) - this.cellGap;
-    const startX = (this.scale.width - mapWidth) / 2;
-    const startY = (this.scale.height - mapHeight) / 2 + 30;
 
     for (let y = 0; y < gameState.mapHeight; y++) {
       for (let x = 0; x < gameState.mapWidth; x++) {
         const cell = gameState.mapCells[y][x];
-        const px = startX + x * (this.cellSize + this.cellGap);
-        const py = startY + y * (this.cellSize + this.cellGap);
+        const px = x * (this.cellSize + this.cellGap);
+        const py = y * (this.cellSize + this.cellGap);
 
         const graphics = this.cellGraphics[y][x];
         graphics.clear();
@@ -334,7 +382,7 @@ export class MapScene extends Phaser.Scene {
       return;
     }
 
-    // 补给点直接触发补给效果
+    // 补给点触发补给效果（有选项）
     if (cell.type === 'supply') {
       if (cell.isCleared) {
         console.log(`[地图] 补给点 (${cell.x}, ${cell.y}) 已使用`);
@@ -344,10 +392,20 @@ export class MapScene extends Phaser.Scene {
       return;
     }
 
+    // 奖励点处理
+    if (cell.type === 'reward') {
+      if (cell.isCleared) {
+        console.log(`[地图] 奖励点 (${cell.x}, ${cell.y}) 已领取`);
+        return;
+      }
+      this.showRewardPopup(cell);
+      return;
+    }
+
     // 问号格揭示内容
     if (cell.type === 'question' && !cell.isRevealed) {
       cell.isRevealed = true;
-      cell.resolvedType = resolveQuestionCell(cell);
+      cell.resolvedType = resolveQuestionCell(cell, gameState.startPosition, gameState.bossPosition);
       this.redrawMap();
 
       // 根据揭示的内容触发效果
@@ -449,10 +507,52 @@ export class MapScene extends Phaser.Scene {
   }
 
   private showSupplyPopup(cell: MapCell): void {
-    this.modifyCaravanHp(10);
-    this.modifyFood(2);
+    const gameState = getGameState();
+    const options: { text: string; action: () => void }[] = [
+      { text: '免费补给 (食物+2)', action: () => {
+        this.modifyFood(2);
+        cell.isCleared = true;
+        this.closePopup();
+      }},
+    ];
+    if (gameState.gold >= 20) {
+      options.push({ text: '修理商队 (-20金)', action: () => {
+        this.modifyGold(-20);
+        this.modifyCaravanHp(15);
+        cell.isCleared = true;
+        this.closePopup();
+      }});
+    }
+    if (gameState.gold >= 15) {
+      options.push({ text: '鼓舞队伍 (-15金)', action: () => {
+        this.modifyGold(-15);
+        this.modifyMorale(2);
+        cell.isCleared = true;
+        this.closePopup();
+      }});
+    }
+    options.push({ text: '离开', action: () => this.closePopup() });
+    this.createPopup('补给站', `剩余金币: ${gameState.gold}\n\n选择补给项目：`, options);
+  }
+
+  private showRewardPopup(cell: MapCell): void {
+    const rewards = {
+      small: { name: '小货箱', gold: 10, food: 1 },
+      medium: { name: '商队残骸', gold: 15, caravanHp: 5 },
+      large: { name: '旧世界储藏箱', gold: 25, morale: 1 },
+    };
+    const reward = rewards[cell.rewardType || 'small'];
+    this.modifyGold(reward.gold);
+    if ('food' in reward) this.modifyFood(reward.food);
+    if ('caravanHp' in reward) this.modifyCaravanHp(reward.caravanHp);
+    if ('morale' in reward) this.modifyMorale(reward.morale);
     cell.isCleared = true;
-    this.createPopup('补给点', '获得补给\n\n商队耐久 +10\n食物 +2', [
+    // 构建描述
+    const descParts = [`金币 +${reward.gold}`];
+    if ('food' in reward) descParts.push(`食物 +${reward.food}`);
+    if ('caravanHp' in reward) descParts.push(`商队耐久 +${reward.caravanHp}`);
+    if ('morale' in reward) descParts.push(`士气 +${reward.morale}`);
+    this.createPopup(reward.name, `发现了${reward.name}！\n\n${descParts.join('\n')}`, [
       { text: '继续', action: () => this.closePopup() }
     ]);
   }
@@ -461,13 +561,13 @@ export class MapScene extends Phaser.Scene {
     const w = this.scale.width;
     const h = this.scale.height;
 
-    // 遮罩
+    // 遮罩（加到scene，不随地图滚动）
     const overlay = this.add.graphics();
     overlay.fillStyle(0x000000, 0.7);
     overlay.fillRect(0, 0, w, h);
     overlay.setName('popupOverlay');
 
-    // 弹窗背景
+    // 弹窗背景（加到scene）
     const popupBg = this.add.graphics();
     popupBg.fillStyle(0x2a2a3e, 1);
     popupBg.fillRect(w / 2 - 200, h / 2 - 120, 400, 240);
@@ -504,7 +604,7 @@ export class MapScene extends Phaser.Scene {
 
   private closePopup(): void {
     // 移除所有弹窗元素
-    ['popupOverlay', 'popupBg', 'popupTitle', 'popupDesc', 'popupBtn0', 'popupBtn1', 'popupBtn2'].forEach(name => {
+    ['popupOverlay', 'popupBg', 'popupTitle', 'popupDesc', 'popupBtn0', 'popupBtn1', 'popupBtn2', 'popupBtn3'].forEach(name => {
       const obj = this.children.getByName(name);
       if (obj) obj.destroy();
     });
@@ -528,6 +628,12 @@ export class MapScene extends Phaser.Scene {
   private modifyCaravanHp(delta: number): void {
     const gameState = getGameState();
     gameState.caravanHp = Math.max(0, Math.min(gameState.caravanMaxHp, gameState.caravanHp + delta));
+    setGameState(gameState);
+  }
+
+  private modifyGold(delta: number): void {
+    const gameState = getGameState();
+    gameState.gold = Math.max(0, gameState.gold + delta);
     setGameState(gameState);
   }
 
@@ -563,13 +669,17 @@ export class MapScene extends Phaser.Scene {
     const caravanColor = gameState.caravanHp > gameState.caravanMaxHp * 0.5 ? '#88ccff' : '#ffaa44';
     this.resourceTexts['caravan'].setText(`🚗 ${gameState.caravanHp}/${gameState.caravanMaxHp}`);
     this.resourceTexts['caravan'].setColor(caravanColor);
+
+    this.resourceTexts['gold'].setText(`💰 ${gameState.gold}`);
   }
 
-  private createPartyDisplay(startX: number, startY: number, gameState: ReturnType<typeof getGameState>): void {
+  private createPartyDisplay(gameState: ReturnType<typeof getGameState>): void {
     const chars = gameState.selectedCharacters;
     const spacing = 100;
     const totalWidth = (chars.length - 1) * spacing;
-    const x = startX + (gameState.mapWidth * (this.cellSize + this.cellGap) - this.cellGap - totalWidth) / 2;
+    const mapPixelW = gameState.mapWidth * (this.cellSize + this.cellGap) - this.cellGap;
+    const x = (this.scale.width - totalWidth) / 2;
+    const startY = 45;
 
     chars.forEach((charId, index) => {
       const char = CHARACTER_DEFS[charId];
@@ -636,6 +746,7 @@ export class MapScene extends Phaser.Scene {
   private showVictory(): void {
     const w = this.scale.width;
     const h = this.scale.height;
+    const gameState = getGameState();
 
     const overlay = this.add.graphics();
     overlay.fillStyle(0x000000, 0.8);
@@ -645,7 +756,11 @@ export class MapScene extends Phaser.Scene {
       fontSize: '36px', color: '#ffcc44', fontFamily: 'monospace', fontStyle: 'bold'
     }).setOrigin(0.5);
 
-    const desc = this.add.text(w / 2, h / 2 + 10, '你成功击败了Boss，完成了远征！', {
+    const victoryText = gameState.expeditionGoal === 'boss'
+      ? '你成功击败了首领，完成了远征！'
+      : '你成功抵达了安全据点，完成了远征！';
+
+    const desc = this.add.text(w / 2, h / 2 + 10, victoryText, {
       fontSize: '18px', color: '#cccccc', fontFamily: 'monospace'
     }).setOrigin(0.5);
 

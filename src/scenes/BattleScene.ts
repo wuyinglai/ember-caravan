@@ -3,7 +3,7 @@ import { BattleManager } from '../systems/BattleManager';
 import { createCharacterState, getStartingDeck, CHARACTER_DEFS } from '../data/characters';
 import { createEnemyState, ENEMY_DEFS, ENEMY_ACTIONS, getEnemyNextAction } from '../data/enemies';
 import { CharacterState, EnemyState, CardDef } from '../data/types';
-import { getGameState, setGameState, resetGameState, checkVictory } from '../systems/GameState';
+import { getGameState, setGameState, resetGameState, checkVictory, updateReachableCells } from '../systems/GameState';
 
 export class BattleScene extends Phaser.Scene {
   private battleManager!: BattleManager;
@@ -761,7 +761,11 @@ export class BattleScene extends Phaser.Scene {
 
     btn.on('pointerdown', () => {
       if (victory) {
-        // 胜利：返回地图
+        // 胜利：重新计算可到达格子并返回地图
+        const gameState = getGameState();
+        updateReachableCells(gameState);
+        setGameState(gameState);
+        console.log('[战斗] 返回地图，已重新计算可移动格子');
         this.scene.start('MapScene');
       } else {
         // 失败：重置游戏并返回主菜单
@@ -776,6 +780,7 @@ export class BattleScene extends Phaser.Scene {
   private showExpeditionVictory(): void {
     const w = this.scale.width;
     const h = this.scale.height;
+    const gameState = getGameState();
 
     // 遮罩
     const overlay = this.add.graphics();
@@ -798,7 +803,10 @@ export class BattleScene extends Phaser.Scene {
     }).setOrigin(0.5);
 
     // 消息
-    const msgText = this.add.text(w / 2, h / 2 - 10, '你成功击败了Boss，完成了远征！', {
+    const goalMsg = gameState.expeditionGoal === 'boss'
+      ? '你成功击败了首领，完成了远征！'
+      : '你成功完成了远征目标！';
+    const msgText = this.add.text(w / 2, h / 2 - 10, goalMsg, {
       fontSize: '20px',
       color: '#cccccc',
       fontFamily: 'monospace',

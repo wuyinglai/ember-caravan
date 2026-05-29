@@ -274,11 +274,12 @@ export class CharacterSelectScene extends Phaser.Scene {
     gameState.reserveCharacters = allChars.filter(c => !this.selectedChars.includes(c));
 
     // 初始化半隐藏远征地图
-    const { cells, startPos, bossPos } = createExpeditionMap(gameState.mapWidth, gameState.mapHeight);
+    const { cells, startPos, bossPos, expeditionGoal } = createExpeditionMap(gameState.mapWidth, gameState.mapHeight);
     gameState.mapCells = cells;
     gameState.currentPosition = { ...startPos };
     gameState.startPosition = { ...startPos };
     gameState.bossPosition = { ...bossPos };
+    gameState.expeditionGoal = expeditionGoal;
     updateReachableCells(gameState);
 
     setGameState(gameState);
