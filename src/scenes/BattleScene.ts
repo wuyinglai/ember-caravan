@@ -622,6 +622,12 @@ export class BattleScene extends Phaser.Scene {
     const panel = this.characterPanels[index];
     const char = this.battleManager.state.characters[index];
     
+    // 检查角色是否存在
+    if (!char || !char.def) {
+      console.warn(`[战斗] 角色 ${index} 不存在`);
+      return;
+    }
+    
     // 清除旧文本
     panel.each((child) => {
       if (child instanceof Phaser.GameObjects.Text) {
