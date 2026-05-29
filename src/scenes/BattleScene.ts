@@ -3,6 +3,7 @@ import { BattleManager } from '../systems/BattleManager';
 import { createCharacterState, getStartingDeck, CHARACTER_DEFS } from '../data/characters';
 import { createEnemyState, ENEMY_DEFS, ENEMY_ACTIONS, getEnemyNextAction } from '../data/enemies';
 import { CharacterState, EnemyState, CardDef } from '../data/types';
+import { getGameState, setGameState, resetGameState } from '../systems/GameState';
 
 export class BattleScene extends Phaser.Scene {
   private battleManager!: BattleManager;
@@ -15,7 +16,6 @@ export class BattleScene extends Phaser.Scene {
   private actionPointText!: Phaser.GameObjects.Text;
   private turnText!: Phaser.GameObjects.Text;
   private caravanText!: Phaser.GameObjects.Text;
-  private logText!: Phaser.GameObjects.Text;
   private endTurnBtn!: Phaser.GameObjects.Text;
   private restartBtn!: Phaser.GameObjects.Text;
   
@@ -31,43 +31,67 @@ export class BattleScene extends Phaser.Scene {
   create() {
     const w = this.scale.width;
     const h = this.scale.height;
-    
+
     // 背景
     const bg = this.add.graphics();
     bg.fillStyle(0x1a1a2e, 1);
     bg.fillRect(0, 0, w, h);
-    
-    // 创建测试队伍（3个角色）
-    const characters = [
-      createCharacterState('guardian'),
-      createCharacterState('sharpshooter'),
-      createCharacterState('repairman'),
-    ];
-    
-    // 固定测试敌人：1个荒原强盗 + 1个野兽
-    const enemies = [
-      createEnemyState('bandit'),
-      createEnemyState('beast'),
-    ];
-    
+
+    // 获取游戏状态
+    const gameState = getGameState();
+
+    // 创建队伍（从游戏状态中读取选择的角色）
+    let characters: CharacterState[];
+    if (gameState.selectedCharacters.length === 3) {
+      // 使用玩家选择的角色
+      characters = gameState.selectedCharacters.map(id => createCharacterState(id));
+    } else {
+      // 默认测试队伍（用于直接测试战斗场景）
+      characters = [
+        createCharacterState('guardian'),
+        createCharacterState('sharpshooter'),
+        createCharacterState('repairman'),
+      ];
+    }
+
+    // 根据战斗类型创建敌人
+    let enemies: EnemyState[];
+    if (gameState.currentBattleType === 'boss') {
+      // Boss战：更强的敌人
+      enemies = [
+        createEnemyState('boss'),
+      ];
+    } else {
+      // 普通战斗
+      enemies = [
+        createEnemyState('bandit'),
+        createEnemyState('beast'),
+      ];
+    }
+
+    // 同步商队耐久
+    const caravanDurability = gameState.caravanHp;
+    const caravanMaxDurability = gameState.caravanMaxHp;
+
     // 创建战斗管理器
     this.battleManager = new BattleManager(characters, enemies, (victory) => {
       this.onBattleEnd(victory);
-    });
-    
+    }, caravanDurability, caravanMaxDurability);
+
     // 开始战斗
     this.battleManager.startBattle();
-    
+
     // 创建UI
     this.createUI();
-    
+
     // 键盘快捷键
     this.input.keyboard?.on('keydown-E', () => this.endTurn());
     this.input.keyboard?.on('keydown-ENTER', () => this.endTurn());
     this.input.keyboard?.on('keydown-R', () => this.restart());
-    
-    console.log('[余烬商队] 阶段1战斗原型初始化完成');
-    console.log('敌人: 荒原强盗(24HP) + 野兽(20HP)');
+
+    console.log('[余烬商队] 战斗场景初始化完成');
+    console.log('队伍:', characters.map(c => c.def.name).join(', '));
+    console.log('敌人:', enemies.map(e => e.def.name).join(', '));
   }
   
   private createUI(): void {
@@ -126,7 +150,7 @@ export class BattleScene extends Phaser.Scene {
     const chars = this.battleManager.state.characters;
     const startY = 80;
     const panelHeight = 65;
-    const spacing = panelHeight + 40;
+    const spacing = panelHeight + 70; // 大幅增加面板间距
     
     for (let i = 0; i < chars.length; i++) {
       const char = chars[i];
@@ -172,7 +196,7 @@ export class BattleScene extends Phaser.Scene {
     const deck = getStartingDeck(char.def.id);
     const skillColor = '#' + char.def.color.toString(16).padStart(6, '0');
     let iconX = 16;
-    const radius = 15;
+    const radius = 18;
     const diameter = radius * 2;
     
     for (let i = 0; i < deck.length; i++) {
@@ -189,7 +213,7 @@ export class BattleScene extends Phaser.Scene {
       
       // 技能名称（取第一个字）
       const skillIcon = this.add.text(cx, cy, card.name.charAt(0), {
-        fontSize: '15px', color: skillColor, fontFamily: 'monospace', fontStyle: 'bold',
+        fontSize: '18px', color: skillColor, fontFamily: 'monospace', fontStyle: 'bold',
       }).setOrigin(0.5);
       
       // 设置交互区域
@@ -214,7 +238,7 @@ export class BattleScene extends Phaser.Scene {
         this.hideSkillTooltip();
       });
       
-      iconX += diameter + 6;
+      iconX += diameter + 12; // 增大技能图标间距
     }
   }
   
@@ -267,7 +291,7 @@ export class BattleScene extends Phaser.Scene {
     const w = this.scale.width;
     const startY = 80;
     const panelHeight = 70;
-    const spacing = panelHeight + 40; // 增加间距给技能图标
+    const spacing = panelHeight + 70; // 大幅增加间距
     
     for (let i = 0; i < enemies.length; i++) {
       const enemy = enemies[i];
@@ -353,7 +377,7 @@ export class BattleScene extends Phaser.Scene {
     const skillColor = '#' + enemy.def.color.toString(16).padStart(6, '0');
     const w = this.scale.width;
     let iconX = w - 230 + 16;
-    const radius = 15;
+    const radius = 18;
     const diameter = radius * 2;
     
     for (let i = 0; i < enemySkills.length; i++) {
@@ -370,7 +394,7 @@ export class BattleScene extends Phaser.Scene {
       
       // 技能名称（取第一个字）
       const skillIcon = this.add.text(cx, cy, skill.name.charAt(0), {
-        fontSize: '15px', color: skillColor, fontFamily: 'monospace', fontStyle: 'bold',
+        fontSize: '18px', color: skillColor, fontFamily: 'monospace', fontStyle: 'bold',
       }).setOrigin(0.5);
       
       // 设置交互区域
@@ -395,7 +419,7 @@ export class BattleScene extends Phaser.Scene {
         this.hideSkillTooltip();
       });
       
-      iconX += diameter + 6;
+      iconX += diameter + 12; // 增大敌人技能图标间距
     }
   }
   
@@ -445,9 +469,9 @@ export class BattleScene extends Phaser.Scene {
     const h = this.scale.height;
     const chars = this.battleManager.state.characters;
     
-    // 手牌区域：从左侧角色面板右边开始，到右侧敌人面板左边结束
-    const leftBound = 240;
-    const rightBound = w - 240;
+    // 手牌区域：充分利用底部空间
+    const leftBound = 10;
+    const rightBound = w - 10;
     const availableWidth = rightBound - leftBound;
     
     // 计算总卡牌数
@@ -456,13 +480,11 @@ export class BattleScene extends Phaser.Scene {
       if (char.currentHp > 0) totalCards += char.hand.length;
     }
     
-    // 动态计算间距，确保不超出
-    const maxCardWidth = 140;
-    const minSpacing = 10;
-    const cardSpacing = totalCards > 1 ? Math.min(maxCardWidth, (availableWidth - 40) / totalCards) : maxCardWidth;
+    // 充分利用底部空间，卡牌均匀分布不重叠
+    const cardSpacing = totalCards > 1 ? (availableWidth - 20) / totalCards : availableWidth;
     const totalWidth = totalCards * cardSpacing;
     let cardX = leftBound + (availableWidth - totalWidth) / 2 + cardSpacing / 2;
-    const cardY = h - 90;
+    const cardY = h - 80;
     
     for (let charIndex = 0; charIndex < chars.length; charIndex++) {
       const char = chars[charIndex];
@@ -500,9 +522,9 @@ export class BattleScene extends Phaser.Scene {
     // 只显示费用和名字，不显示描述，避免重叠
     const text = this.add.text(x, y, 
       `[${card.cost}] ${card.name}`, {
-      fontSize: '14px', color: textColor,
+      fontSize: '18px', color: textColor,
       backgroundColor: bgColor,
-      padding: { x: 8, y: 5 },
+      padding: { x: 14, y: 10 },
       align: 'center',
       fontFamily: 'monospace',
     }).setOrigin(0.5);
@@ -668,41 +690,54 @@ export class BattleScene extends Phaser.Scene {
   
   private onBattleEnd(victory: boolean): void {
     this.battleEnded = true;
-    
+
+    // 更新游戏状态
+    const gameState = getGameState();
+    gameState.battleResult = victory ? 'victory' : 'defeat';
+
+    // 同步商队耐久回游戏状态
+    gameState.caravanHp = this.battleManager.state.caravanDurability;
+
+    setGameState(gameState);
+
     const w = this.scale.width;
     const h = this.scale.height;
-    
+
     // 遮罩
     const overlay = this.add.graphics();
     overlay.fillStyle(0x000000, 0.7);
     overlay.fillRect(0, 0, w, h);
-    
+
     // 显示结果
-    const resultText = this.add.text(w / 2, h / 2 - 40, 
+    const resultText = this.add.text(w / 2, h / 2 - 40,
       victory ? '🎉 战 斗 胜 利 🎉' : '💀 战 斗 失 败 💀', {
       fontSize: '36px', color: victory ? '#44ff44' : '#ff4444',
       fontStyle: 'bold', fontFamily: 'monospace',
     }).setOrigin(0.5);
-    
+
     // 结果说明
-    const resultDesc = this.add.text(w / 2, h / 2 + 10, 
+    const resultDesc = this.add.text(w / 2, h / 2 + 10,
       victory ? '所有敌人被击败！' : '队伍全灭或商队被摧毁！', {
       fontSize: '16px', color: '#aaaaaa', fontFamily: 'monospace',
     }).setOrigin(0.5);
-    
-    // 重新开始提示
-    this.add.text(w / 2, h / 2 + 50, '按 R 或点击下方按钮重新开始', {
-      fontSize: '14px', color: '#888888', fontFamily: 'monospace',
-    }).setOrigin(0.5);
-    
-    // 重新开始按钮
-    const btn = this.add.text(w / 2, h / 2 + 90, '【重新开始】', {
-      fontSize: '18px', color: '#ffffff', backgroundColor: '#444466',
+
+    // 返回地图按钮
+    const btn = this.add.text(w / 2, h / 2 + 60, victory ? '【返回地图】' : '【重新开始】', {
+      fontSize: '18px', color: '#ffffff', backgroundColor: victory ? '#2a8a4a' : '#444466',
       padding: { x: 20, y: 10 }, fontFamily: 'monospace',
     }).setOrigin(0.5).setInteractive();
-    
-    btn.on('pointerdown', () => this.restart());
-    btn.on('pointerover', () => btn.setStyle({ backgroundColor: '#555577' }));
-    btn.on('pointerout', () => btn.setStyle({ backgroundColor: '#444466' }));
+
+    btn.on('pointerdown', () => {
+      if (victory) {
+        // 胜利：返回地图
+        this.scene.start('MapScene');
+      } else {
+        // 失败：重置游戏并返回主菜单
+        resetGameState();
+        this.scene.start('MainMenuScene');
+      }
+    });
+    btn.on('pointerover', () => btn.setStyle({ backgroundColor: victory ? '#3aca6a' : '#555577' }));
+    btn.on('pointerout', () => btn.setStyle({ backgroundColor: victory ? '#2a8a4a' : '#444466' }));
   }
 }

@@ -1,4 +1,7 @@
 import Phaser from 'phaser';
+import { MainMenuScene } from './scenes/MainMenuScene';
+import { CharacterSelectScene } from './scenes/CharacterSelectScene';
+import { MapScene } from './scenes/MapScene';
 import { BattleScene } from './scenes/BattleScene';
 
 // 全局错误处理
@@ -13,11 +16,11 @@ window.onunhandledrejection = (event) => {
 
 const config: Phaser.Types.Core.GameConfig = {
   type: Phaser.AUTO,
-  width: 960,
-  height: 640,
+  width: 1280,
+  height: 720,
   parent: 'app',
   backgroundColor: '#0a0a1a',
-  scene: [BattleScene],
+  scene: [MainMenuScene, CharacterSelectScene, MapScene, BattleScene],
   scale: {
     mode: Phaser.Scale.FIT,
     autoCenter: Phaser.Scale.CENTER_BOTH,
@@ -25,4 +28,4 @@ const config: Phaser.Types.Core.GameConfig = {
 };
 
 new Phaser.Game(config);
-console.log('[余烬商队] 核心战斗原型已启动');
+console.log('[余烬商队] 阶段2 - 地图探索原型已启动');

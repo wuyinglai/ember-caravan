@@ -18,7 +18,9 @@ export class BattleManager {
   constructor(
     characters: CharacterState[],
     enemies: EnemyState[],
-    onBattleEnd?: (victory: boolean) => void
+    onBattleEnd?: (victory: boolean) => void,
+    caravanDurability?: number,
+    caravanMaxDurability?: number
   ) {
     this.state = {
       characters: characters,
@@ -27,17 +29,17 @@ export class BattleManager {
       maxActionPoints: 3,
       turn: 1,
       caravanArmor: 0,
-      caravanDurability: 45,
-      caravanMaxDurability: 45,
+      caravanDurability: caravanDurability ?? 45,
+      caravanMaxDurability: caravanMaxDurability ?? 45,
     };
-    
+
     this.guardianPassiveTriggered = false;
     this.repairmanPassiveTriggered = false;
-    
+
     if (onBattleEnd) {
       this.onBattleEnd = onBattleEnd;
     }
-    
+
     this.logs = [];
   }
   
