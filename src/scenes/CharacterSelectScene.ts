@@ -63,6 +63,18 @@ export class CharacterSelectScene extends Phaser.Scene {
 
     this.updateConfirmButton();
 
+    // 键盘快捷键：按1-5选择角色，Enter确认
+    const charList: CharacterId[] = ['guardian', 'sharpshooter', 'repairman', 'scout', 'inspirer'];
+    this.input.keyboard?.on('keydown', (event: KeyboardEvent) => {
+      const num = parseInt(event.key);
+      if (num >= 1 && num <= 5) {
+        this.toggleCharacterByIndex(num - 1);
+      }
+      if (event.key === 'Enter' && this.selectedChars.length === 3) {
+        this.startExpedition();
+      }
+    });
+
     console.log('[角色选择] 角色选择场景已加载');
   }
 
@@ -162,6 +174,20 @@ export class CharacterSelectScene extends Phaser.Scene {
     });
 
     return container;
+  }
+
+  private toggleCharacterByIndex(index: number): void {
+    const allChars: CharacterId[] = ['guardian', 'sharpshooter', 'repairman', 'scout', 'inspirer'];
+    if (index >= 0 && index < allChars.length) {
+      const charId = allChars[index];
+      const existingIndex = this.selectedChars.indexOf(charId);
+      if (existingIndex > -1) {
+        this.selectedChars.splice(existingIndex, 1);
+      } else if (this.selectedChars.length < 3) {
+        this.selectedChars.push(charId);
+      }
+      this.updateUI();
+    }
   }
 
   private toggleCharacter(

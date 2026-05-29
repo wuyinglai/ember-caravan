@@ -40,6 +40,25 @@ export class MapScene extends Phaser.Scene {
     // 创建队伍显示
     this.createPartyDisplay(startX, startY - 60, gameState);
 
+    // 键盘方向键移动（备用操作方式）
+    this.input.keyboard?.on('keydown', (event: KeyboardEvent) => {
+      const gameState = getGameState();
+      const { x, y } = gameState.currentPosition;
+      let nx = x, ny = y;
+      switch (event.key) {
+        case 'ArrowUp': ny = y - 1; break;
+        case 'ArrowDown': ny = y + 1; break;
+        case 'ArrowLeft': nx = x - 1; break;
+        case 'ArrowRight': nx = x + 1; break;
+        default: return;
+      }
+      if (nx >= 0 && nx < gameState.mapWidth && ny >= 0 && ny < gameState.mapHeight) {
+        if (gameState.mapCells[ny][nx].isReachable) {
+          this.onCellClick(nx, ny);
+        }
+      }
+    });
+
     // 检查游戏结束
     this.checkGameStatus(gameState);
 

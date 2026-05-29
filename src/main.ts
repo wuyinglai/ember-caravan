@@ -27,5 +27,7 @@ const config: Phaser.Types.Core.GameConfig = {
   },
 };
 
-new Phaser.Game(config);
+const game = new Phaser.Game(config);
+// 暴露到 window 以便调试
+(window as any).game = game;
 console.log('[余烬商队] 阶段2 - 地图探索原型已启动');

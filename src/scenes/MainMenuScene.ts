@@ -63,6 +63,11 @@ export class MainMenuScene extends Phaser.Scene {
       fontFamily: 'monospace',
     }).setOrigin(0.5);
 
+    // 键盘快捷键（备用触发方式）
+    this.input.keyboard?.on('keydown-ENTER', () => {
+      this.scene.start('CharacterSelectScene');
+    });
+
     console.log('[主菜单] 主菜单场景已加载');
   }
 }
