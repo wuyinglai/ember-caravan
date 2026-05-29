@@ -117,16 +117,7 @@ export class BattleScene extends Phaser.Scene {
     this.restartBtn.on('pointerover', () => this.restartBtn.setStyle({ backgroundColor: '#444444' }));
     this.restartBtn.on('pointerout', () => this.restartBtn.setStyle({ backgroundColor: '#333333' }));
     
-    // 战斗日志（左下角，精简）
-    this.logText = this.add.text(10, h - 110, '', {
-      fontSize: '10px', color: '#88aa88', fontFamily: 'monospace',
-      lineSpacing: 2,
-    });
-    
-    // 操作提示
-    this.add.text(10, h - 125, '点击手牌→点击敌人→再点手牌出牌', {
-      fontSize: '10px', color: '#555555', fontFamily: 'monospace',
-    });
+    // 左下角日志和操作提示已移除
     
     this.updateUI();
   }
@@ -135,7 +126,7 @@ export class BattleScene extends Phaser.Scene {
     const chars = this.battleManager.state.characters;
     const startY = 80;
     const panelHeight = 50;
-    const spacing = panelHeight + 8;
+    const spacing = panelHeight + 35; // 增加间距给技能图标
     
     for (let i = 0; i < chars.length; i++) {
       const char = chars[i];
@@ -172,15 +163,97 @@ export class BattleScene extends Phaser.Scene {
       
       this.characterPanels.push(panel);
       
-      // 技能列表（面板下方）
-      const skillY = startY + i * spacing + panelHeight + 1;
-      const deck = getStartingDeck(char.def.id);
-      const skillNames = deck.map(c => c.name);
-      const skillText = this.add.text(14, skillY, `技能: ${skillNames.join(' ')}`, {
-        fontSize: '10px', color: '#cccccc', fontFamily: 'monospace',
-        wordWrap: { width: 170, useAdvancedWrap: true },
+      // 技能图标（面板下方）
+      this.createSkillIcons(char, i, startY + i * spacing + panelHeight + 5);
+    }
+  }
+  
+  private createSkillIcons(char: CharacterState, charIndex: number, startY: number): void {
+    const deck = getStartingDeck(char.def.id);
+    const skillColor = '#' + char.def.color.toString(16).padStart(6, '0');
+    let iconX = 14;
+    
+    for (let i = 0; i < deck.length; i++) {
+      const card = deck[i];
+      // 创建技能图标（圆形背景+文字）
+      const iconBg = this.add.graphics();
+      iconBg.fillStyle(char.def.color, 0.3);
+      iconBg.fillCircle(iconX + 12, startY + 12, 12);
+      iconBg.lineStyle(1, char.def.color, 1);
+      iconBg.strokeCircle(iconX + 12, startY + 12, 12);
+      
+      // 技能名称（取第一个字）
+      const skillIcon = this.add.text(iconX + 12, startY + 12, card.name.charAt(0), {
+        fontSize: '12px', color: skillColor, fontFamily: 'monospace', fontStyle: 'bold',
+      }).setOrigin(0.5);
+      
+      // 设置交互区域
+      const hitArea = this.add.zone(iconX + 12, startY + 12, 24, 24).setInteractive();
+      
+      // 悬停显示技能介绍
+      hitArea.on('pointerover', () => {
+        iconBg.clear();
+        iconBg.fillStyle(char.def.color, 0.6);
+        iconBg.fillCircle(iconX + 12, startY + 12, 12);
+        iconBg.lineStyle(2, char.def.color, 1);
+        iconBg.strokeCircle(iconX + 12, startY + 12, 12);
+        this.showSkillTooltip(card, iconX + 12, startY - 5);
       });
-      this.characterSkillTexts.push(skillText);
+      
+      hitArea.on('pointerout', () => {
+        iconBg.clear();
+        iconBg.fillStyle(char.def.color, 0.3);
+        iconBg.fillCircle(iconX + 12, startY + 12, 12);
+        iconBg.lineStyle(1, char.def.color, 1);
+        iconBg.strokeCircle(iconX + 12, startY + 12, 12);
+        this.hideSkillTooltip();
+      });
+      
+      iconX += 28; // 图标间距
+    }
+  }
+  
+  private skillTooltip: Phaser.GameObjects.Container | null = null;
+  
+  private showSkillTooltip(card: CardDef, x: number, y: number): void {
+    this.hideSkillTooltip();
+    
+    const tooltip = this.add.container(x, y);
+    
+    // 背景
+    const bg = this.add.graphics();
+    bg.fillStyle(0x000000, 0.9);
+    bg.lineStyle(1, 0x888888, 1);
+    
+    // 计算文本尺寸
+    const nameText = this.add.text(0, 0, `${card.name} [${card.cost}]`, {
+      fontSize: '12px', color: '#ffffff', fontFamily: 'monospace', fontStyle: 'bold',
+    });
+    const descText = this.add.text(0, 18, card.description, {
+      fontSize: '10px', color: '#cccccc', fontFamily: 'monospace',
+      wordWrap: { width: 150 },
+    });
+    
+    const width = Math.max(nameText.width, Math.min(descText.width, 150)) + 16;
+    const height = 20 + descText.height + 8;
+    
+    bg.fillRoundedRect(-width/2, -height - 5, width, height, 4);
+    bg.strokeRoundedRect(-width/2, -height - 5, width, height, 4);
+    
+    tooltip.add(bg);
+    tooltip.add(nameText);
+    tooltip.add(descText);
+    
+    nameText.setPosition(-width/2 + 8, -height + 3);
+    descText.setPosition(-width/2 + 8, -height + 21);
+    
+    this.skillTooltip = tooltip;
+  }
+  
+  private hideSkillTooltip(): void {
+    if (this.skillTooltip) {
+      this.skillTooltip.destroy();
+      this.skillTooltip = null;
     }
   }
   
@@ -308,7 +381,8 @@ export class BattleScene extends Phaser.Scene {
   
   private createCardText(x: number, y: number, card: CardDef, charColor: number, isSelected: boolean, canPlay: boolean, charName: string): Phaser.GameObjects.Text {
     const bgColor = isSelected ? '#555588' : (canPlay ? '#2a2a4a' : '#1a1a2a');
-    const textColor = canPlay ? '#ffffff' : '#666666';
+    const cardColorHex = '#' + charColor.toString(16).padStart(6, '0');
+    const textColor = canPlay ? cardColorHex : '#444444';
     
     // 只显示费用和名字，不显示描述，避免重叠
     const text = this.add.text(x, y, 
@@ -400,10 +474,6 @@ export class BattleScene extends Phaser.Scene {
     
     // 更新手牌
     this.updateHandDisplay();
-    
-    // 更新日志（显示最后6条）
-    const recentLogs = this.battleManager.logs.slice(-6);
-    this.logText.setText(recentLogs.join('\n'));
   }
   
   private updateCharacterPanel(index: number): void {
