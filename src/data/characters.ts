@@ -263,50 +263,70 @@ export const ALL_CARDS: CardDef[] = [
   },
 ];
 
+// 复制卡牌（创建新的卡牌实例）
+function copyCard(cardDef: CardDef): CardDef {
+  return {
+    ...cardDef,
+    effects: cardDef.effects.map(e => ({ ...e })),
+  };
+}
+
+// 添加指定数量的卡牌副本
+function addCardCopies(cards: CardDef[], cardId: string, count: number): void {
+  const cardDef = ALL_CARDS.find(c => c.id === cardId);
+  if (!cardDef) {
+    console.error(`Card not found: ${cardId}`);
+    return;
+  }
+  for (let i = 0; i < count; i++) {
+    cards.push(copyCard(cardDef));
+  }
+}
+
 // 获取角色的初始牌组
 export function getStartingDeck(characterId: CharacterId): CardDef[] {
   const cards: CardDef[] = [];
-  const charCards = ALL_CARDS.filter(c => c.characterId === characterId);
   
   // 根据文档，每个角色有特定的初始牌数量
   switch (characterId) {
     case 'guardian':
-      // 举盾×2, 盾击×2, 拦截×1, 稳住阵线×1
-      cards.push(...charCards.filter(c => c.id === 'guardian_shield_up').slice(0, 2));
-      cards.push(...charCards.filter(c => c.id === 'guardian_shield_bash').slice(0, 2));
-      cards.push(...charCards.filter(c => c.id === 'guardian_intercept').slice(0, 1));
-      cards.push(...charCards.filter(c => c.id === 'guardian_hold_line').slice(0, 1));
+      // 举盾×2, 盾击×2, 拦截×1, 稳住阵线×1 = 6张
+      addCardCopies(cards, 'guardian_shield_up', 2);
+      addCardCopies(cards, 'guardian_shield_bash', 2);
+      addCardCopies(cards, 'guardian_intercept', 1);
+      addCardCopies(cards, 'guardian_hold_line', 1);
       break;
     case 'sharpshooter':
-      // 瞄准×2, 射击×2, 精准射击×1, 压制×1
-      cards.push(...charCards.filter(c => c.id === 'sharpshooter_aim').slice(0, 2));
-      cards.push(...charCards.filter(c => c.id === 'sharpshooter_shoot').slice(0, 2));
-      cards.push(...charCards.filter(c => c.id === 'sharpshooter_precise_shot').slice(0, 1));
-      cards.push(...charCards.filter(c => c.id === 'sharpshooter_suppress').slice(0, 1));
+      // 瞄准×2, 射击×2, 精准射击×1, 压制×1 = 6张
+      addCardCopies(cards, 'sharpshooter_aim', 2);
+      addCardCopies(cards, 'sharpshooter_shoot', 2);
+      addCardCopies(cards, 'sharpshooter_precise_shot', 1);
+      addCardCopies(cards, 'sharpshooter_suppress', 1);
       break;
     case 'repairman':
-      // 包扎×2, 临时修理×2, 拆零件×1, 应急方案×1
-      cards.push(...charCards.filter(c => c.id === 'repairman_bandage').slice(0, 2));
-      cards.push(...charCards.filter(c => c.id === 'repairman_quick_fix').slice(0, 2));
-      cards.push(...charCards.filter(c => c.id === 'repairman_scrap').slice(0, 1));
-      cards.push(...charCards.filter(c => c.id === 'repairman_emergency').slice(0, 1));
+      // 包扎×2, 临时修理×2, 拆零件×1, 应急方案×1 = 6张
+      addCardCopies(cards, 'repairman_bandage', 2);
+      addCardCopies(cards, 'repairman_quick_fix', 2);
+      addCardCopies(cards, 'repairman_scrap', 1);
+      addCardCopies(cards, 'repairman_emergency', 1);
       break;
     case 'scout':
-      // 侦查×2, 快步×2, 刺击×1, 找路×1
-      cards.push(...charCards.filter(c => c.id === 'scout_recon').slice(0, 2));
-      cards.push(...charCards.filter(c => c.id === 'scout_quick_step').slice(0, 2));
-      cards.push(...charCards.filter(c => c.id === 'scout_stab').slice(0, 1));
-      cards.push(...charCards.filter(c => c.id === 'scout_find_path').slice(0, 1));
+      // 侦查×2, 快步×2, 刺击×1, 找路×1 = 6张
+      addCardCopies(cards, 'scout_recon', 2);
+      addCardCopies(cards, 'scout_quick_step', 2);
+      addCardCopies(cards, 'scout_stab', 1);
+      addCardCopies(cards, 'scout_find_path', 1);
       break;
     case 'inspirer':
-      // 鼓舞×2, 安抚×2, 战歌×1, 合唱×1
-      cards.push(...charCards.filter(c => c.id === 'inspirer_inspire').slice(0, 2));
-      cards.push(...charCards.filter(c => c.id === 'inspirer_comfort').slice(0, 2));
-      cards.push(...charCards.filter(c => c.id === 'inspirer_battle_song').slice(0, 1));
-      cards.push(...charCards.filter(c => c.id === 'inspirer_chorus').slice(0, 1));
+      // 鼓舞×2, 安抚×2, 战歌×1, 合唱×1 = 6张
+      addCardCopies(cards, 'inspirer_inspire', 2);
+      addCardCopies(cards, 'inspirer_comfort', 2);
+      addCardCopies(cards, 'inspirer_battle_song', 1);
+      addCardCopies(cards, 'inspirer_chorus', 1);
       break;
   }
   
+  console.log(`[牌组] ${characterId} 初始牌组: ${cards.length}张 - ${cards.map(c => c.name).join(', ')}`);
   return cards;
 }
 

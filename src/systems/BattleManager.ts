@@ -8,6 +8,10 @@ export class BattleManager {
   private selectedEnemy: number | null = null;
   private onBattleEnd: ((victory: boolean) => void) | null = null;
   
+  // 被动技能触发标记
+  private guardianPassiveTriggered: boolean = false;
+  private repairmanPassiveTriggered: boolean = false;
+  
   // 调试日志
   logs: string[] = [];
   
@@ -27,6 +31,9 @@ export class BattleManager {
       caravanMaxDurability: 45,
     };
     
+    this.guardianPassiveTriggered = false;
+    this.repairmanPassiveTriggered = false;
+    
     if (onBattleEnd) {
       this.onBattleEnd = onBattleEnd;
     }
@@ -43,6 +50,7 @@ export class BattleManager {
     for (const char of this.state.characters) {
       DeckManager.initCharacterDeck(char);
       this.log(`${char.def.name} 加入战斗 (HP: ${char.currentHp}/${char.def.maxHp})`);
+      this.log(`  牌组: ${char.deck.length}张 - ${char.deck.map(c => c.name).join(', ')}`);
       this.log(`  初始手牌: ${char.hand.map(c => c.name).join(', ')}`);
     }
     
@@ -166,7 +174,8 @@ export class BattleManager {
           this.log(`  ${char.def.name} 获得 ${effect.value} 点护甲`);
           
           // 护路人被动：第一次获得护甲时，商队也获得2点护甲
-          if (char.def.id === 'guardian' && this.state.caravanArmor === 0) {
+          if (char.def.id === 'guardian' && !this.guardianPassiveTriggered) {
+            this.guardianPassiveTriggered = true;
             this.state.caravanArmor += 2;
             this.log(`  护路人被动触发！商队护甲 +2`);
           }
@@ -175,6 +184,13 @@ export class BattleManager {
             c.armor += effect.value;
           }
           this.log(`  全队获得 ${effect.value} 点护甲`);
+          
+          // 护路人被动：第一次获得护甲时
+          if (char.def.id === 'guardian' && !this.guardianPassiveTriggered) {
+            this.guardianPassiveTriggered = true;
+            this.state.caravanArmor += 2;
+            this.log(`  护路人被动触发！商队护甲 +2`);
+          }
         } else if (effect.target === 'ally') {
           // 拦截：给生命最低的队友护甲
           let lowestHpChar: CharacterState | null = null;
@@ -187,7 +203,7 @@ export class BattleManager {
           }
           if (lowestHpChar) {
             lowestHpChar.armor += effect.value;
-            this.log(`  ${lowestHpChar.def.name} 获得 ${effect.value} 点护甲`);
+            this.log(`  拦截：${lowestHpChar.def.name} 获得 ${effect.value} 点护甲`);
           }
         }
         break;
@@ -228,7 +244,8 @@ export class BattleManager {
           this.log(`  商队耐久: ${this.state.caravanDurability}/${this.state.caravanMaxDurability}`);
           
           // 修补师被动：第一次修理时额外恢复3点
-          if (char.def.id === 'repairman' && effect.value === 6) {
+          if (char.def.id === 'repairman' && !this.repairmanPassiveTriggered) {
+            this.repairmanPassiveTriggered = true;
             const bonusRepair = Math.min(3, this.state.caravanMaxDurability - this.state.caravanDurability);
             this.state.caravanDurability += bonusRepair;
             this.log(`  修补师被动触发！额外恢复 ${bonusRepair} 点`);
@@ -241,9 +258,18 @@ export class BattleManager {
         break;
         
       case 'draw':
-        DeckManager.drawCards(char, effect.value);
-        this.log(`  ${char.def.name} 抽了 ${effect.value} 张牌`);
-        this.log(`  当前手牌: ${char.hand.map(c => c.name).join(', ')}`);
+        // 应急方案特殊处理
+        if (card.id === 'repairman_emergency') {
+          const isBelowHalf = this.state.caravanDurability < this.state.caravanMaxDurability / 2;
+          const drawCount = isBelowHalf ? 2 : 1;
+          DeckManager.drawCards(char, drawCount);
+          this.log(`  应急方案：商队耐久${isBelowHalf ? '低于' : '不低于'}一半，抽 ${drawCount} 张牌`);
+          this.log(`  当前手牌: ${char.hand.map(c => c.name).join(', ')}`);
+        } else {
+          DeckManager.drawCards(char, effect.value);
+          this.log(`  ${char.def.name} 抽了 ${effect.value} 张牌`);
+          this.log(`  当前手牌: ${char.hand.map(c => c.name).join(', ')}`);
+        }
         break;
         
       case 'add_action':
@@ -253,9 +279,13 @@ export class BattleManager {
         break;
         
       case 'special':
-        // 压制：敌人下次攻击伤害减少（简化处理）
+        // 压制：敌人下次攻击伤害减少4点
         if (targetEnemyIndex !== null && card.id === 'sharpshooter_suppress') {
-          this.log(`  压制：敌人下次攻击伤害减少 4 点`);
+          const enemy = this.state.enemies[targetEnemyIndex];
+          if (enemy) {
+            enemy.suppressedDamage = 4;
+            this.log(`  压制：${enemy.def.name} 下次攻击伤害减少 4 点`);
+          }
         }
         // 精准射击特殊效果
         if (targetEnemyIndex !== null && card.id === 'sharpshooter_precise_shot') {
@@ -280,7 +310,6 @@ export class BattleManager {
     }
     
     // 扣生命
-    const actualDamage = Math.max(0, enemy.currentHp - damage);
     enemy.currentHp = Math.max(0, enemy.currentHp - damage);
     this.log(`  ${enemy.def.name} 受到 ${damage} 点伤害，剩余 ${enemy.currentHp}/${enemy.def.maxHp}`);
     
@@ -340,26 +369,36 @@ export class BattleManager {
       const action = enemy.nextAction;
       this.log(`${enemy.def.name} 行动: ${action.name}`);
       
+      // 计算实际伤害（考虑压制）
+      let actualDamage = action.damage || 0;
+      if (enemy.suppressedDamage > 0) {
+        const suppressedAmount = Math.min(enemy.suppressedDamage, actualDamage);
+        actualDamage -= suppressedAmount;
+        this.log(`  压制生效：伤害减少 ${suppressedAmount} 点`);
+        enemy.suppressedDamage = 0; // 消耗压制效果
+      }
+      
       // 如果是攻击商队
-      if (action.target === 'caravan' && action.damage) {
-        let damage = action.damage;
+      if (action.target === 'caravan' && actualDamage > 0) {
+        let damage = actualDamage;
         
         // 先扣商队护甲
         if (this.state.caravanArmor > 0) {
           const absorbed = Math.min(this.state.caravanArmor, damage);
           this.state.caravanArmor -= absorbed;
           damage -= absorbed;
+          if (absorbed > 0) this.log(`  商队护甲吸收 ${absorbed} 点`);
         }
         
         // 扣商队耐久
         this.state.caravanDurability = Math.max(0, this.state.caravanDurability - damage);
-        this.log(`  商队受到 ${action.damage} 点伤害`);
+        this.log(`  商队受到 ${damage} 点伤害`);
         this.log(`  商队耐久: ${this.state.caravanDurability}/${this.state.caravanMaxDurability}`);
         continue;
       }
       
       // 攻击角色
-      if (action.damage && action.damage > 0) {
+      if (actualDamage > 0) {
         let targetChar: CharacterState | null = null;
         
         if (action.target === 'random_character') {
@@ -378,7 +417,7 @@ export class BattleManager {
         }
         
         if (targetChar) {
-          let damage = action.damage;
+          let damage = actualDamage;
           
           // 先扣护甲
           if (targetChar.armor > 0) {
@@ -390,7 +429,7 @@ export class BattleManager {
           
           // 扣生命
           targetChar.currentHp = Math.max(0, targetChar.currentHp - damage);
-          this.log(`  ${enemy.def.name} 对 ${targetChar.def.name} 造成 ${action.damage} 点伤害`);
+          this.log(`  ${enemy.def.name} 对 ${targetChar.def.name} 造成 ${actualDamage} 点伤害`);
           this.log(`  ${targetChar.def.name} 剩余 ${targetChar.currentHp}/${targetChar.def.maxHp} HP`);
           
           // 角色倒下

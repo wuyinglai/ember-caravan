@@ -113,6 +113,7 @@ export function createEnemyState(enemyId: string): EnemyState {
     currentHp: def.maxHp,
     armor: 0,
     marks: 0,
+    suppressedDamage: 0, // 压制效果初始为0
     nextAction: null,
   };
 }

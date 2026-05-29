@@ -64,6 +64,7 @@ export interface EnemyState {
   currentHp: number;
   armor: number;
   marks: number; // 标记层数
+  suppressedDamage: number; // 压制：下次攻击伤害减少量
   nextAction: EnemyAction | null;
 }
 
