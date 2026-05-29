@@ -1,17 +1,20 @@
 import { CharacterId } from '../data/characters';
 
 // 地图格子类型
-export type CellType = 'empty' | 'combat' | 'boss' | 'event' | 'camp' | 'supply';
+export type CellType = 'obstacle' | 'boss' | 'question' | 'empty';
+export type ResolvedType = 'combat' | 'event' | 'opportunity' | 'danger' | 'camp' | 'supply' | 'empty';
 
 // 地图格子
 export interface MapCell {
   x: number;
   y: number;
   type: CellType;
+  resolvedType: ResolvedType | null; // 揭示后的真实类型
   visited: boolean;
   isCurrent: boolean;
   isReachable: boolean;
-  cleared: boolean; // 战斗格是否已清理
+  isRevealed: boolean; // 是否已揭示
+  isCleared: boolean; // 是否已处理完成
 }
 
 // 游戏全局状态
@@ -33,6 +36,8 @@ export interface GameState {
   mapHeight: number;
   mapCells: MapCell[][];
   currentPosition: { x: number; y: number };
+  startPosition: { x: number; y: number };
+  bossPosition: { x: number; y: number };
 
   // 战斗相关
   currentBattleType: 'normal' | 'boss' | null;
@@ -46,103 +51,165 @@ export function createInitialGameState(): GameState {
     reserveCharacters: [],
 
     day: 1,
-    maxDay: 18,
+    maxDay: 30,
     food: 8,
     morale: 3,
     caravanHp: 45,
     caravanMaxHp: 45,
 
-    mapWidth: 10,
-    mapHeight: 6,
+    mapWidth: 12,
+    mapHeight: 8,
     mapCells: [],
-    currentPosition: { x: 0, y: 5 }, // 左下角开始
+    currentPosition: { x: 0, y: 0 },
+    startPosition: { x: 0, y: 0 },
+    bossPosition: { x: 0, y: 0 },
 
     currentBattleType: null,
     battleResult: null,
   };
 }
 
-// 创建固定地图
-export function createFixedMap(width: number, height: number): MapCell[][] {
-  const cells: MapCell[][] = [];
+// 创建随机地图
+export function createRandomMap(width: number, height: number): {
+  cells: MapCell[][];
+  startPos: { x: number; y: number };
+  bossPos: { x: number; y: number };
+} {
+  let cells: MapCell[][];
+  let startPos: { x: number; y: number };
+  let bossPos: { x: number; y: number };
+  let hasPath = false;
 
-  for (let y = 0; y < height; y++) {
-    cells[y] = [];
-    for (let x = 0; x < width; x++) {
-      cells[y][x] = {
-        x,
-        y,
-        type: 'empty',
-        visited: false,
-        isCurrent: false,
-        isReachable: false,
-        cleared: false,
-      };
+  // 尝试生成直到有通路
+  while (!hasPath) {
+    cells = [];
+
+    for (let y = 0; y < height; y++) {
+      cells[y] = [];
+      for (let x = 0; x < width; x++) {
+        cells[y][x] = {
+          x,
+          y,
+          type: 'question',
+          resolvedType: null,
+          visited: false,
+          isCurrent: false,
+          isReachable: false,
+          isRevealed: false,
+          isCleared: false,
+        };
+      }
     }
+
+    // 起点在左下区域 (x: 0-2, y: height-3 to height-1)
+    startPos = {
+      x: Math.floor(Math.random() * 3),
+      y: height - 1 - Math.floor(Math.random() * 3),
+    };
+
+    // Boss在右上区域 (x: width-3 to width-1, y: 0-2)
+    bossPos = {
+      x: width - 1 - Math.floor(Math.random() * 3),
+      y: Math.floor(Math.random() * 3),
+    };
+
+    // 确保起点和Boss不在同一格
+    if (startPos.x === bossPos.x && startPos.y === bossPos.y) {
+      continue;
+    }
+
+    // 设置起点
+    cells[startPos.y][startPos.x].type = 'empty';
+    cells[startPos.y][startPos.x].isCurrent = true;
+    cells[startPos.y][startPos.x].visited = true;
+    cells[startPos.y][startPos.x].isRevealed = true;
+
+    // 设置Boss
+    cells[bossPos.y][bossPos.x].type = 'boss';
+    cells[bossPos.y][bossPos.x].isRevealed = true;
+
+    // 生成障碍 (约15%)
+    const obstacleCount = Math.floor(width * height * 0.15);
+    let placed = 0;
+    let attempts = 0;
+
+    while (placed < obstacleCount && attempts < 1000) {
+      attempts++;
+      const x = Math.floor(Math.random() * width);
+      const y = Math.floor(Math.random() * height);
+
+      // 不能阻挡起点和Boss
+      if ((x === startPos.x && y === startPos.y) || (x === bossPos.x && y === bossPos.y)) {
+        continue;
+      }
+
+      if (cells[y][x].type === 'question') {
+        cells[y][x].type = 'obstacle';
+        placed++;
+      }
+    }
+
+    // 检查是否有通路
+    hasPath = checkPathExists(cells, startPos, bossPos, width, height);
   }
 
-  // 设置起点 (左下角)
-  cells[height - 1][0].type = 'empty';
-  cells[height - 1][0].isCurrent = true;
-  cells[height - 1][0].visited = true;
+  return { cells: cells!, startPos: startPos!, bossPos: bossPos! };
+}
 
-  // 设置终点/Boss (右上角)
-  cells[0][width - 1].type = 'boss';
+// BFS检查是否存在通路
+function checkPathExists(
+  cells: MapCell[][],
+  start: { x: number; y: number },
+  end: { x: number; y: number },
+  width: number,
+  height: number
+): boolean {
+  const visited = new Set<string>();
+  const queue = [{ x: start.x, y: start.y }];
+  visited.add(`${start.x},${start.y}`);
 
-  // 设置一些战斗格子 (固定布局)
-  const combatPositions = [
-    { x: 2, y: 4 },
-    { x: 4, y: 3 },
-    { x: 6, y: 2 },
-    { x: 3, y: 1 },
-    { x: 7, y: 4 },
-    { x: 8, y: 3 },
+  const directions = [
+    { dx: 0, dy: -1 },
+    { dx: 0, dy: 1 },
+    { dx: -1, dy: 0 },
+    { dx: 1, dy: 0 },
   ];
 
-  for (const pos of combatPositions) {
-    if (pos.y < height && pos.x < width) {
-      cells[pos.y][pos.x].type = 'combat';
+  while (queue.length > 0) {
+    const { x, y } = queue.shift()!;
+
+    if (x === end.x && y === end.y) {
+      return true;
+    }
+
+    for (const dir of directions) {
+      const nx = x + dir.dx;
+      const ny = y + dir.dy;
+
+      if (nx >= 0 && nx < width && ny >= 0 && ny < height) {
+        const key = `${nx},${ny}`;
+        if (!visited.has(key) && cells[ny][nx].type !== 'obstacle') {
+          visited.add(key);
+          queue.push({ x: nx, y: ny });
+        }
+      }
     }
   }
 
-  // 设置一些事件格子 (占位)
-  const eventPositions = [
-    { x: 1, y: 3 },
-    { x: 5, y: 4 },
-    { x: 7, y: 1 },
-  ];
+  return false;
+}
 
-  for (const pos of eventPositions) {
-    if (pos.y < height && pos.x < width) {
-      cells[pos.y][pos.x].type = 'event';
-    }
-  }
+// 随机决定问号格内容
+export function resolveQuestionCell(cell: MapCell): ResolvedType {
+  const rand = Math.random();
 
-  // 设置营地格子 (占位)
-  const campPositions = [
-    { x: 3, y: 5 },
-    { x: 6, y: 0 },
-  ];
-
-  for (const pos of campPositions) {
-    if (pos.y < height && pos.x < width) {
-      cells[pos.y][pos.x].type = 'camp';
-    }
-  }
-
-  // 设置补给点 (占位)
-  const supplyPositions = [
-    { x: 5, y: 2 },
-    { x: 2, y: 0 },
-  ];
-
-  for (const pos of supplyPositions) {
-    if (pos.y < height && pos.x < width) {
-      cells[pos.y][pos.x].type = 'supply';
-    }
-  }
-
-  return cells;
+  // 权重：战斗40%，事件25%，机遇15%，危险10%，营地5%，补给5%
+  if (rand < 0.40) return 'combat';
+  if (rand < 0.65) return 'event';
+  if (rand < 0.80) return 'opportunity';
+  if (rand < 0.90) return 'danger';
+  if (rand < 0.95) return 'camp';
+  return 'supply';
 }
 
 // 更新可到达格子
@@ -157,12 +224,12 @@ export function updateReachableCells(state: GameState): void {
     }
   }
 
-  // 标记上下左右相邻格子为可到达
+  // 标记上下左右相邻格子为可到达（障碍不可移动）
   const directions = [
-    { dx: 0, dy: -1 }, // 上
-    { dx: 0, dy: 1 },  // 下
-    { dx: -1, dy: 0 }, // 左
-    { dx: 1, dy: 0 },  // 右
+    { dx: 0, dy: -1 },
+    { dx: 0, dy: 1 },
+    { dx: -1, dy: 0 },
+    { dx: 1, dy: 0 },
   ];
 
   for (const dir of directions) {
@@ -170,7 +237,10 @@ export function updateReachableCells(state: GameState): void {
     const ny = y + dir.dy;
 
     if (nx >= 0 && nx < state.mapWidth && ny >= 0 && ny < state.mapHeight) {
-      mapCells[ny][nx].isReachable = true;
+      const cell = mapCells[ny][nx];
+      if (cell.type !== 'obstacle') {
+        cell.isReachable = true;
+      }
     }
   }
 }
@@ -190,16 +260,11 @@ export function moveToCell(state: GameState, x: number, y: number): boolean {
   state.currentPosition = { x, y };
   const newCell = state.mapCells[y][x];
   newCell.isCurrent = true;
+  newCell.visited = true;
 
-  // 消耗资源
+  // 只增加天数，不消耗食物
+  // TODO: 后续补给、营地、事件系统完善后，再恢复移动消耗 food
   state.day += 1;
-  state.food -= 1;
-
-  // 食物不足时士气下降
-  if (state.food < 0) {
-    state.morale -= 1;
-    state.food = 0;
-  }
 
   // 更新可到达格子
   updateReachableCells(state);

@@ -709,8 +709,10 @@ export class BattleScene extends Phaser.Scene {
     // 如果是普通战斗胜利，标记当前格子为已清理
     if (victory && gameState.currentBattleType === 'normal') {
       const { x, y } = gameState.currentPosition;
-      if (gameState.mapCells[y][x].type === 'combat') {
-        gameState.mapCells[y][x].cleared = true;
+      const cell = gameState.mapCells[y][x];
+      // 问号格揭示为战斗后清理
+      if (cell.type === 'question' && cell.resolvedType === 'combat') {
+        cell.isCleared = true;
         console.log(`[战斗] 战斗格 (${x}, ${y}) 已清理`);
       }
     }
