@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 import { CHARACTER_DEFS, CharacterId } from '../data/characters';
-import { getGameState, setGameState, createRandomMap, updateReachableCells } from '../systems/GameState';
+import { getGameState, setGameState, createExpeditionMap, updateReachableCells } from '../systems/GameState';
 
 export class CharacterSelectScene extends Phaser.Scene {
   private selectedChars: CharacterId[] = [];
@@ -273,8 +273,8 @@ export class CharacterSelectScene extends Phaser.Scene {
     const allChars: CharacterId[] = ['guardian', 'sharpshooter', 'repairman', 'scout', 'inspirer'];
     gameState.reserveCharacters = allChars.filter(c => !this.selectedChars.includes(c));
 
-    // 初始化随机地图
-    const { cells, startPos, bossPos } = createRandomMap(gameState.mapWidth, gameState.mapHeight);
+    // 初始化半隐藏远征地图
+    const { cells, startPos, bossPos } = createExpeditionMap(gameState.mapWidth, gameState.mapHeight);
     gameState.mapCells = cells;
     gameState.currentPosition = { ...startPos };
     gameState.startPosition = { ...startPos };

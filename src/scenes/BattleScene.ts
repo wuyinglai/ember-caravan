@@ -61,6 +61,13 @@ export class BattleScene extends Phaser.Scene {
       enemies = [
         createEnemyState('boss'),
       ];
+    } else if (gameState.currentBattleType === 'elite') {
+      // 精英战斗：更强的敌人组合
+      enemies = [
+        createEnemyState('bandit'),
+        createEnemyState('bandit'),
+        createEnemyState('beast'),
+      ];
     } else {
       // 普通战斗
       enemies = [

@@ -196,8 +196,17 @@ export class MapScene extends Phaser.Scene {
     // 障碍
     if (cell.type === 'obstacle') return '⬛';
 
-    // Boss
+    // Boss（提前可见）
     if (cell.type === 'boss') return '👹';
+
+    // 强敌（提前可见）
+    if (cell.type === 'elite') return cell.isCleared ? '✓' : '💀';
+
+    // 营地（提前可见）
+    if (cell.type === 'camp') return '⛺';
+
+    // 补给点（提前可见）
+    if (cell.type === 'supply') return '📦';
 
     // 已揭示的问号格
     if (cell.isRevealed && cell.resolvedType) {
@@ -206,8 +215,6 @@ export class MapScene extends Phaser.Scene {
         case 'event': return '❓';
         case 'opportunity': return '✨';
         case 'danger': return '⚠️';
-        case 'camp': return '⛺';
-        case 'supply': return '📦';
         default: return '·';
       }
     }
@@ -305,6 +312,38 @@ export class MapScene extends Phaser.Scene {
       return;
     }
 
+    // 强敌格进入精英战斗
+    if (cell.type === 'elite') {
+      if (cell.isCleared) {
+        console.log(`[地图] 强敌格 (${cell.x}, ${cell.y}) 已清理`);
+        return;
+      }
+      gameState.currentBattleType = 'elite';
+      setGameState(gameState);
+      this.scene.start('BattleScene');
+      return;
+    }
+
+    // 营地格直接触发营地效果
+    if (cell.type === 'camp') {
+      if (cell.isCleared) {
+        console.log(`[地图] 营地格 (${cell.x}, ${cell.y}) 已使用`);
+        return;
+      }
+      this.showCampPopup(cell);
+      return;
+    }
+
+    // 补给点直接触发补给效果
+    if (cell.type === 'supply') {
+      if (cell.isCleared) {
+        console.log(`[地图] 补给点 (${cell.x}, ${cell.y}) 已使用`);
+        return;
+      }
+      this.showSupplyPopup(cell);
+      return;
+    }
+
     // 问号格揭示内容
     if (cell.type === 'question' && !cell.isRevealed) {
       cell.isRevealed = true;
@@ -331,12 +370,6 @@ export class MapScene extends Phaser.Scene {
         break;
       case 'danger':
         this.showDangerPopup(cell);
-        break;
-      case 'camp':
-        this.showCampPopup(cell);
-        break;
-      case 'supply':
-        this.showSupplyPopup(cell);
         break;
     }
   }
