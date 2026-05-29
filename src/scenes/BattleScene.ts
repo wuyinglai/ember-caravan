@@ -1,7 +1,7 @@
 import Phaser from 'phaser';
 import { BattleManager } from '../systems/BattleManager';
 import { createCharacterState, getStartingDeck, CHARACTER_DEFS } from '../data/characters';
-import { createEnemyState } from '../data/enemies';
+import { createEnemyState, ENEMY_DEFS, ENEMY_ACTIONS, getEnemyNextAction } from '../data/enemies';
 import { CharacterState, EnemyState, CardDef } from '../data/types';
 
 export class BattleScene extends Phaser.Scene {
@@ -267,7 +267,7 @@ export class BattleScene extends Phaser.Scene {
     const w = this.scale.width;
     const startY = 80;
     const panelHeight = 70;
-    const spacing = panelHeight + 10;
+    const spacing = panelHeight + 40; // 增加间距给技能图标
     
     for (let i = 0; i < enemies.length; i++) {
       const enemy = enemies[i];
@@ -321,7 +321,115 @@ export class BattleScene extends Phaser.Scene {
       }
       
       this.enemyPanels.push(panel);
+      
+      // 敌人技能图标（面板下方）
+      this.createEnemySkillIcons(enemy, i, startY + i * spacing + panelHeight + 5);
     }
+  }
+  
+  private createEnemySkillIcons(enemy: EnemyState, enemyIndex: number, startY: number): void {
+    // 收集该敌人的所有技能
+    const enemySkills: { name: string; description: string }[] = [];
+    const enemyId = enemy.def.id;
+    
+    // 遍历 ENEMY_ACTIONS 找到属于该敌人的技能
+    const actionMap: Record<string, string[]> = {
+      bandit: ['bandit_attack'],
+      beast: ['beast_attack'],
+      raider: ['raider_attack'],
+      slinger: ['slinger_attack'],
+      destroyer: ['destroyer_attack'],
+      boss: ['boss_attack_char', 'boss_attack_caravan', 'boss_summon', 'boss_buff'],
+    };
+    
+    const skillKeys = actionMap[enemyId] || [];
+    for (const key of skillKeys) {
+      const action = ENEMY_ACTIONS[key as keyof typeof ENEMY_ACTIONS];
+      if (action) {
+        enemySkills.push({ name: action.name, description: action.description });
+      }
+    }
+    
+    const skillColor = '#' + enemy.def.color.toString(16).padStart(6, '0');
+    const w = this.scale.width;
+    let iconX = w - 230 + 16;
+    const radius = 15;
+    const diameter = radius * 2;
+    
+    for (let i = 0; i < enemySkills.length; i++) {
+      const skill = enemySkills[i];
+      const cx = iconX + radius;
+      const cy = startY + radius;
+      
+      // 创建技能图标（圆形背景+文字）
+      const iconBg = this.add.graphics();
+      iconBg.fillStyle(enemy.def.color, 0.3);
+      iconBg.fillCircle(cx, cy, radius);
+      iconBg.lineStyle(1, enemy.def.color, 1);
+      iconBg.strokeCircle(cx, cy, radius);
+      
+      // 技能名称（取第一个字）
+      const skillIcon = this.add.text(cx, cy, skill.name.charAt(0), {
+        fontSize: '15px', color: skillColor, fontFamily: 'monospace', fontStyle: 'bold',
+      }).setOrigin(0.5);
+      
+      // 设置交互区域
+      const hitArea = this.add.zone(cx, cy, diameter, diameter).setInteractive();
+      
+      // 悬停显示技能介绍
+      hitArea.on('pointerover', () => {
+        iconBg.clear();
+        iconBg.fillStyle(enemy.def.color, 0.6);
+        iconBg.fillCircle(cx, cy, radius);
+        iconBg.lineStyle(2, enemy.def.color, 1);
+        iconBg.strokeCircle(cx, cy, radius);
+        this.showEnemySkillTooltip(skill, cx, cy - radius - 5);
+      });
+      
+      hitArea.on('pointerout', () => {
+        iconBg.clear();
+        iconBg.fillStyle(enemy.def.color, 0.3);
+        iconBg.fillCircle(cx, cy, radius);
+        iconBg.lineStyle(1, enemy.def.color, 1);
+        iconBg.strokeCircle(cx, cy, radius);
+        this.hideSkillTooltip();
+      });
+      
+      iconX += diameter + 6;
+    }
+  }
+  
+  private showEnemySkillTooltip(skill: { name: string; description: string }, x: number, y: number): void {
+    this.hideSkillTooltip();
+    
+    const tooltip = this.add.container(x, y);
+    
+    const bg = this.add.graphics();
+    bg.fillStyle(0x000000, 0.9);
+    bg.lineStyle(1, 0x888888, 1);
+    
+    const nameText = this.add.text(0, 0, skill.name, {
+      fontSize: '12px', color: '#ff8888', fontFamily: 'monospace', fontStyle: 'bold',
+    });
+    const descText = this.add.text(0, 18, skill.description, {
+      fontSize: '10px', color: '#cccccc', fontFamily: 'monospace',
+      wordWrap: { width: 150 },
+    });
+    
+    const width = Math.max(nameText.width, Math.min(descText.width, 150)) + 16;
+    const height = 20 + descText.height + 8;
+    
+    bg.fillRoundedRect(-width/2, -height - 5, width, height, 4);
+    bg.strokeRoundedRect(-width/2, -height - 5, width, height, 4);
+    
+    tooltip.add(bg);
+    tooltip.add(nameText);
+    tooltip.add(descText);
+    
+    nameText.setPosition(-width/2 + 8, -height + 3);
+    descText.setPosition(-width/2 + 8, -height + 21);
+    
+    this.skillTooltip = tooltip;
   }
   
   private createHandArea(): void {
@@ -349,8 +457,8 @@ export class BattleScene extends Phaser.Scene {
     }
     
     // 动态计算间距，确保不超出
-    const maxCardWidth = 110;
-    const minSpacing = 8;
+    const maxCardWidth = 140;
+    const minSpacing = 10;
     const cardSpacing = totalCards > 1 ? Math.min(maxCardWidth, (availableWidth - 40) / totalCards) : maxCardWidth;
     const totalWidth = totalCards * cardSpacing;
     let cardX = leftBound + (availableWidth - totalWidth) / 2 + cardSpacing / 2;
