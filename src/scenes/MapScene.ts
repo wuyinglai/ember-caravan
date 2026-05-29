@@ -367,9 +367,20 @@ export class MapScene extends Phaser.Scene {
 
     switch (cell.type) {
       case 'combat':
-      case 'boss':
+        // 已清理的战斗格不再触发战斗
+        if (cell.cleared) {
+          console.log(`[地图] 战斗格 (${cell.x}, ${cell.y}) 已清理，不再触发战斗`);
+          break;
+        }
         // 保存战斗类型并进入战斗
-        gameState.currentBattleType = cell.type === 'boss' ? 'boss' : 'normal';
+        gameState.currentBattleType = 'normal';
+        setGameState(gameState);
+        this.scene.start('BattleScene');
+        break;
+
+      case 'boss':
+        // Boss格总是触发战斗
+        gameState.currentBattleType = 'boss';
         setGameState(gameState);
         this.scene.start('BattleScene');
         break;

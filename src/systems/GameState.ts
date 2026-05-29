@@ -11,6 +11,7 @@ export interface MapCell {
   visited: boolean;
   isCurrent: boolean;
   isReachable: boolean;
+  cleared: boolean; // 战斗格是否已清理
 }
 
 // 游戏全局状态
@@ -75,6 +76,7 @@ export function createFixedMap(width: number, height: number): MapCell[][] {
         visited: false,
         isCurrent: false,
         isReachable: false,
+        cleared: false,
       };
     }
   }

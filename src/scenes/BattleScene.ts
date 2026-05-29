@@ -3,7 +3,7 @@ import { BattleManager } from '../systems/BattleManager';
 import { createCharacterState, getStartingDeck, CHARACTER_DEFS } from '../data/characters';
 import { createEnemyState, ENEMY_DEFS, ENEMY_ACTIONS, getEnemyNextAction } from '../data/enemies';
 import { CharacterState, EnemyState, CardDef } from '../data/types';
-import { getGameState, setGameState, resetGameState } from '../systems/GameState';
+import { getGameState, setGameState, resetGameState, checkVictory } from '../systems/GameState';
 
 export class BattleScene extends Phaser.Scene {
   private battleManager!: BattleManager;
@@ -698,6 +698,23 @@ export class BattleScene extends Phaser.Scene {
     // 同步商队耐久回游戏状态
     gameState.caravanHp = this.battleManager.state.caravanDurability;
 
+    // 如果是Boss战且胜利，标记远征胜利
+    if (victory && gameState.currentBattleType === 'boss') {
+      gameState.battleResult = 'victory';
+      setGameState(gameState);
+      this.showExpeditionVictory();
+      return;
+    }
+
+    // 如果是普通战斗胜利，标记当前格子为已清理
+    if (victory && gameState.currentBattleType === 'normal') {
+      const { x, y } = gameState.currentPosition;
+      if (gameState.mapCells[y][x].type === 'combat') {
+        gameState.mapCells[y][x].cleared = true;
+        console.log(`[战斗] 战斗格 (${x}, ${y}) 已清理`);
+      }
+    }
+
     setGameState(gameState);
 
     const w = this.scale.width;
@@ -739,5 +756,53 @@ export class BattleScene extends Phaser.Scene {
     });
     btn.on('pointerover', () => btn.setStyle({ backgroundColor: victory ? '#3aca6a' : '#555577' }));
     btn.on('pointerout', () => btn.setStyle({ backgroundColor: victory ? '#2a8a4a' : '#444466' }));
+  }
+
+  private showExpeditionVictory(): void {
+    const w = this.scale.width;
+    const h = this.scale.height;
+
+    // 遮罩
+    const overlay = this.add.graphics();
+    overlay.fillStyle(0x000000, 0.8);
+    overlay.fillRect(0, 0, w, h);
+
+    // 弹窗背景
+    const popupBg = this.add.graphics();
+    popupBg.fillStyle(0x2a2a3e, 1);
+    popupBg.fillRect(w / 2 - 250, h / 2 - 120, 500, 240);
+    popupBg.lineStyle(3, 0xffcc44, 1);
+    popupBg.strokeRect(w / 2 - 250, h / 2 - 120, 500, 240);
+
+    // 标题
+    const titleText = this.add.text(w / 2, h / 2 - 70, '🎉 远征胜利！', {
+      fontSize: '36px',
+      color: '#ffcc44',
+      fontFamily: 'monospace',
+      fontStyle: 'bold',
+    }).setOrigin(0.5);
+
+    // 消息
+    const msgText = this.add.text(w / 2, h / 2 - 10, '你成功击败了Boss，完成了远征！', {
+      fontSize: '20px',
+      color: '#cccccc',
+      fontFamily: 'monospace',
+    }).setOrigin(0.5);
+
+    // 返回主菜单按钮
+    const btn = this.add.text(w / 2, h / 2 + 60, '【返回主菜单】', {
+      fontSize: '20px',
+      color: '#ffffff',
+      backgroundColor: '#2a4a8a',
+      padding: { x: 40, y: 12 },
+      fontFamily: 'monospace',
+    }).setOrigin(0.5).setInteractive();
+
+    btn.on('pointerdown', () => {
+      resetGameState();
+      this.scene.start('MainMenuScene');
+    });
+    btn.on('pointerover', () => btn.setStyle({ backgroundColor: '#3a6aca' }));
+    btn.on('pointerout', () => btn.setStyle({ backgroundColor: '#2a4a8a' }));
   }
 }
