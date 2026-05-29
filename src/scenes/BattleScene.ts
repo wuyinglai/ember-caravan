@@ -125,38 +125,38 @@ export class BattleScene extends Phaser.Scene {
   private createCharacterPanels(): void {
     const chars = this.battleManager.state.characters;
     const startY = 80;
-    const panelHeight = 50;
-    const spacing = panelHeight + 35; // 增加间距给技能图标
+    const panelHeight = 65;
+    const spacing = panelHeight + 40;
     
     for (let i = 0; i < chars.length; i++) {
       const char = chars[i];
       const panel = this.add.container(10, startY + i * spacing);
       
-      // 背景框 - 紧凑
+      // 背景框
       const bg = this.add.graphics();
       bg.fillStyle(char.def.color, 0.15);
-      bg.fillRect(0, 0, 180, panelHeight);
-      bg.lineStyle(1, char.def.color, 0.8);
-      bg.strokeRect(0, 0, 180, panelHeight);
+      bg.fillRect(0, 0, 220, panelHeight);
+      bg.lineStyle(2, char.def.color, 0.8);
+      bg.strokeRect(0, 0, 220, panelHeight);
       panel.add(bg);
       
-      // 角色名 + HP + 护甲 合并一行
-      const nameText = this.add.text(6, 4, `${char.def.icon}${char.def.name}`, {
-        fontSize: '13px', color: '#ffffff', fontFamily: 'monospace', fontStyle: 'bold',
+      // 角色名
+      const nameText = this.add.text(8, 6, `${char.def.icon} ${char.def.name}`, {
+        fontSize: '16px', color: '#ffffff', fontFamily: 'monospace', fontStyle: 'bold',
       });
       panel.add(nameText);
       
-      // HP和护甲在同一行
+      // HP和护甲
       const hpColor = char.currentHp > char.def.maxHp * 0.5 ? '#ff6666' : (char.currentHp > 0 ? '#ffaa44' : '#666666');
-      const statsText = this.add.text(6, 22, `❤️${char.currentHp}/${char.def.maxHp} 🛡️${char.armor}`, {
-        fontSize: '11px', color: hpColor, fontFamily: 'monospace',
+      const statsText = this.add.text(8, 30, `❤️${char.currentHp}/${char.def.maxHp}  🛡️${char.armor}`, {
+        fontSize: '14px', color: hpColor, fontFamily: 'monospace',
       });
       panel.add(statsText);
       
       // 状态
       if (char.currentHp <= 0) {
-        const statusText = this.add.text(6, 36, '💀已倒下', {
-          fontSize: '10px', color: '#ff4444', fontFamily: 'monospace',
+        const statusText = this.add.text(8, 48, '💀已倒下', {
+          fontSize: '12px', color: '#ff4444', fontFamily: 'monospace',
         });
         panel.add(statusText);
       }
@@ -171,45 +171,50 @@ export class BattleScene extends Phaser.Scene {
   private createSkillIcons(char: CharacterState, charIndex: number, startY: number): void {
     const deck = getStartingDeck(char.def.id);
     const skillColor = '#' + char.def.color.toString(16).padStart(6, '0');
-    let iconX = 14;
+    let iconX = 16;
+    const radius = 15;
+    const diameter = radius * 2;
     
     for (let i = 0; i < deck.length; i++) {
       const card = deck[i];
+      const cx = iconX + radius;
+      const cy = startY + radius;
+      
       // 创建技能图标（圆形背景+文字）
       const iconBg = this.add.graphics();
       iconBg.fillStyle(char.def.color, 0.3);
-      iconBg.fillCircle(iconX + 12, startY + 12, 12);
+      iconBg.fillCircle(cx, cy, radius);
       iconBg.lineStyle(1, char.def.color, 1);
-      iconBg.strokeCircle(iconX + 12, startY + 12, 12);
+      iconBg.strokeCircle(cx, cy, radius);
       
       // 技能名称（取第一个字）
-      const skillIcon = this.add.text(iconX + 12, startY + 12, card.name.charAt(0), {
-        fontSize: '12px', color: skillColor, fontFamily: 'monospace', fontStyle: 'bold',
+      const skillIcon = this.add.text(cx, cy, card.name.charAt(0), {
+        fontSize: '15px', color: skillColor, fontFamily: 'monospace', fontStyle: 'bold',
       }).setOrigin(0.5);
       
       // 设置交互区域
-      const hitArea = this.add.zone(iconX + 12, startY + 12, 24, 24).setInteractive();
+      const hitArea = this.add.zone(cx, cy, diameter, diameter).setInteractive();
       
       // 悬停显示技能介绍
       hitArea.on('pointerover', () => {
         iconBg.clear();
         iconBg.fillStyle(char.def.color, 0.6);
-        iconBg.fillCircle(iconX + 12, startY + 12, 12);
+        iconBg.fillCircle(cx, cy, radius);
         iconBg.lineStyle(2, char.def.color, 1);
-        iconBg.strokeCircle(iconX + 12, startY + 12, 12);
-        this.showSkillTooltip(card, iconX + 12, startY - 5);
+        iconBg.strokeCircle(cx, cy, radius);
+        this.showSkillTooltip(card, cx, cy - radius - 5);
       });
       
       hitArea.on('pointerout', () => {
         iconBg.clear();
         iconBg.fillStyle(char.def.color, 0.3);
-        iconBg.fillCircle(iconX + 12, startY + 12, 12);
+        iconBg.fillCircle(cx, cy, radius);
         iconBg.lineStyle(1, char.def.color, 1);
-        iconBg.strokeCircle(iconX + 12, startY + 12, 12);
+        iconBg.strokeCircle(cx, cy, radius);
         this.hideSkillTooltip();
       });
       
-      iconX += 28; // 图标间距
+      iconX += diameter + 6;
     }
   }
   
@@ -261,56 +266,56 @@ export class BattleScene extends Phaser.Scene {
     const enemies = this.battleManager.state.enemies;
     const w = this.scale.width;
     const startY = 80;
-    const panelHeight = 55;
-    const spacing = panelHeight + 8;
+    const panelHeight = 70;
+    const spacing = panelHeight + 10;
     
     for (let i = 0; i < enemies.length; i++) {
       const enemy = enemies[i];
-      const panel = this.add.container(w - 190, startY + i * spacing);
+      const panel = this.add.container(w - 230, startY + i * spacing);
       
-      // 背景框 - 紧凑
+      // 背景框
       const bg = this.add.graphics();
       bg.fillStyle(enemy.def.color, 0.15);
-      bg.fillRect(0, 0, 180, panelHeight);
-      bg.lineStyle(1, enemy.def.color, 0.8);
-      bg.strokeRect(0, 0, 180, panelHeight);
+      bg.fillRect(0, 0, 220, panelHeight);
+      bg.lineStyle(2, enemy.def.color, 0.8);
+      bg.strokeRect(0, 0, 220, panelHeight);
       panel.add(bg);
       
       // 敌人名
-      const nameText = this.add.text(6, 4, `${enemy.def.icon} ${enemy.def.name}`, {
-        fontSize: '13px', color: enemy.currentHp > 0 ? '#ffffff' : '#666666', fontFamily: 'monospace', fontStyle: 'bold',
+      const nameText = this.add.text(8, 6, `${enemy.def.icon} ${enemy.def.name}`, {
+        fontSize: '16px', color: enemy.currentHp > 0 ? '#ffffff' : '#666666', fontFamily: 'monospace', fontStyle: 'bold',
       });
       panel.add(nameText);
       
       // HP + 护甲 + 标记 合并一行
       const hpColor = enemy.currentHp > enemy.def.maxHp * 0.5 ? '#ff6666' : (enemy.currentHp > 0 ? '#ffaa44' : '#666666');
-      let statsStr = `❤️${enemy.currentHp}/${enemy.def.maxHp} 🛡️${enemy.armor}`;
-      if (enemy.marks > 0) statsStr += ` 👁️${enemy.marks}`;
-      const statsText = this.add.text(6, 22, statsStr, {
-        fontSize: '11px', color: hpColor, fontFamily: 'monospace',
+      let statsStr = `❤️${enemy.currentHp}/${enemy.def.maxHp}  🛡️${enemy.armor}`;
+      if (enemy.marks > 0) statsStr += `  👁️${enemy.marks}`;
+      const statsText = this.add.text(8, 30, statsStr, {
+        fontSize: '14px', color: hpColor, fontFamily: 'monospace',
       });
       panel.add(statsText);
       
-      // 意图（精简一行）
+      // 意图
       if (enemy.nextAction && enemy.currentHp > 0) {
         const intentColor = enemy.nextAction.target === 'caravan' ? '#88cc88' : '#ff8866';
-        const intentText = this.add.text(6, 38, `👉${enemy.nextAction.name}`, {
-          fontSize: '10px', color: intentColor, fontFamily: 'monospace',
+        const intentText = this.add.text(8, 50, `👉 ${enemy.nextAction.name}`, {
+          fontSize: '12px', color: intentColor, fontFamily: 'monospace',
         });
         panel.add(intentText);
       }
       
       // 已死亡
       if (enemy.currentHp <= 0) {
-        const deadText = this.add.text(6, 38, '💀已击败', {
-          fontSize: '10px', color: '#666666', fontFamily: 'monospace',
+        const deadText = this.add.text(8, 50, '💀已击败', {
+          fontSize: '12px', color: '#666666', fontFamily: 'monospace',
         });
         panel.add(deadText);
       }
       
       // 点击选择敌人
       if (enemy.currentHp > 0) {
-        const hitArea = this.add.zone(90, panelHeight / 2, 180, panelHeight).setInteractive();
+        const hitArea = this.add.zone(110, panelHeight / 2, 220, panelHeight).setInteractive();
         hitArea.on('pointerdown', () => this.onEnemyClick(i));
         panel.add(hitArea);
       }
@@ -333,8 +338,8 @@ export class BattleScene extends Phaser.Scene {
     const chars = this.battleManager.state.characters;
     
     // 手牌区域：从左侧角色面板右边开始，到右侧敌人面板左边结束
-    const leftBound = 200;
-    const rightBound = w - 200;
+    const leftBound = 240;
+    const rightBound = w - 240;
     const availableWidth = rightBound - leftBound;
     
     // 计算总卡牌数
@@ -344,12 +349,12 @@ export class BattleScene extends Phaser.Scene {
     }
     
     // 动态计算间距，确保不超出
-    const maxCardWidth = 90;
+    const maxCardWidth = 110;
     const minSpacing = 8;
     const cardSpacing = totalCards > 1 ? Math.min(maxCardWidth, (availableWidth - 40) / totalCards) : maxCardWidth;
     const totalWidth = totalCards * cardSpacing;
     let cardX = leftBound + (availableWidth - totalWidth) / 2 + cardSpacing / 2;
-    const cardY = h - 80;
+    const cardY = h - 90;
     
     for (let charIndex = 0; charIndex < chars.length; charIndex++) {
       const char = chars[charIndex];
@@ -386,10 +391,10 @@ export class BattleScene extends Phaser.Scene {
     
     // 只显示费用和名字，不显示描述，避免重叠
     const text = this.add.text(x, y, 
-      `[${card.cost}]${card.name}`, {
-      fontSize: '11px', color: textColor,
+      `[${card.cost}] ${card.name}`, {
+      fontSize: '14px', color: textColor,
       backgroundColor: bgColor,
-      padding: { x: 5, y: 3 },
+      padding: { x: 8, y: 5 },
       align: 'center',
       fontFamily: 'monospace',
     }).setOrigin(0.5);
@@ -488,22 +493,22 @@ export class BattleScene extends Phaser.Scene {
     });
     
     // 角色名
-    const nameText = this.add.text(6, 4, `${char.def.icon}${char.def.name}`, {
-      fontSize: '13px', color: char.currentHp > 0 ? '#ffffff' : '#666666', fontFamily: 'monospace', fontStyle: 'bold',
+    const nameText = this.add.text(8, 6, `${char.def.icon} ${char.def.name}`, {
+      fontSize: '16px', color: char.currentHp > 0 ? '#ffffff' : '#666666', fontFamily: 'monospace', fontStyle: 'bold',
     });
     panel.add(nameText);
     
     // HP + 护甲
     const hpColor = char.currentHp > char.def.maxHp * 0.5 ? '#ff6666' : (char.currentHp > 0 ? '#ffaa44' : '#666666');
-    const statsText = this.add.text(6, 22, `❤️${char.currentHp}/${char.def.maxHp} 🛡️${char.armor}`, {
-      fontSize: '11px', color: hpColor, fontFamily: 'monospace',
+    const statsText = this.add.text(8, 30, `❤️${char.currentHp}/${char.def.maxHp}  🛡️${char.armor}`, {
+      fontSize: '14px', color: hpColor, fontFamily: 'monospace',
     });
     panel.add(statsText);
     
     // 状态
     if (char.currentHp <= 0) {
-      const statusText = this.add.text(6, 36, '💀已倒下', {
-        fontSize: '10px', color: '#ff4444', fontFamily: 'monospace',
+      const statusText = this.add.text(8, 48, '💀已倒下', {
+        fontSize: '12px', color: '#ff4444', fontFamily: 'monospace',
       });
       panel.add(statusText);
     }
@@ -521,33 +526,33 @@ export class BattleScene extends Phaser.Scene {
     });
     
     // 敌人名
-    const nameText = this.add.text(6, 4, `${enemy.def.icon} ${enemy.def.name}`, {
-      fontSize: '13px', color: enemy.currentHp > 0 ? '#ffffff' : '#666666', fontFamily: 'monospace', fontStyle: 'bold',
+    const nameText = this.add.text(8, 6, `${enemy.def.icon} ${enemy.def.name}`, {
+      fontSize: '16px', color: enemy.currentHp > 0 ? '#ffffff' : '#666666', fontFamily: 'monospace', fontStyle: 'bold',
     });
     panel.add(nameText);
     
     // HP + 护甲 + 标记 合并
     const hpColor = enemy.currentHp > enemy.def.maxHp * 0.5 ? '#ff6666' : (enemy.currentHp > 0 ? '#ffaa44' : '#666666');
-    let statsStr = `❤️${enemy.currentHp}/${enemy.def.maxHp} 🛡️${enemy.armor}`;
-    if (enemy.marks > 0) statsStr += ` 👁️${enemy.marks}`;
-    const statsText = this.add.text(6, 22, statsStr, {
-      fontSize: '11px', color: hpColor, fontFamily: 'monospace',
+    let statsStr = `❤️${enemy.currentHp}/${enemy.def.maxHp}  🛡️${enemy.armor}`;
+    if (enemy.marks > 0) statsStr += `  👁️${enemy.marks}`;
+    const statsText = this.add.text(8, 30, statsStr, {
+      fontSize: '14px', color: hpColor, fontFamily: 'monospace',
     });
     panel.add(statsText);
     
     // 意图
     if (enemy.nextAction && enemy.currentHp > 0) {
       const intentColor = enemy.nextAction.target === 'caravan' ? '#88cc88' : '#ff8866';
-      const intentText = this.add.text(6, 38, `👉${enemy.nextAction.name}`, {
-        fontSize: '10px', color: intentColor, fontFamily: 'monospace',
+      const intentText = this.add.text(8, 50, `👉 ${enemy.nextAction.name}`, {
+        fontSize: '12px', color: intentColor, fontFamily: 'monospace',
       });
       panel.add(intentText);
     }
     
     // 已死亡
     if (enemy.currentHp <= 0) {
-      const deadText = this.add.text(6, 38, '💀已击败', {
-        fontSize: '10px', color: '#666666', fontFamily: 'monospace',
+      const deadText = this.add.text(8, 50, '💀已击败', {
+        fontSize: '12px', color: '#666666', fontFamily: 'monospace',
       });
       panel.add(deadText);
     }
