@@ -81,8 +81,8 @@ export const ALL_CARDS: CardDef[] = [
     cost: 1,
     characterId: 'guardian',
     type: 'skill',
-    description: '本回合替生命最低的队友承受下一次伤害',
-    effects: [{ type: 'special', value: 0, target: 'ally' }],
+    description: '生命最低的存活队友获得6点护甲',
+    effects: [{ type: 'armor', value: 6, target: 'ally' }],
   },
   {
     id: 'guardian_hold_line',
