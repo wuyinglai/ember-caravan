@@ -95,6 +95,24 @@ export class BattleScene extends Phaser.Scene {
     this.input.keyboard?.on('keydown-E', () => this.endTurn());
     this.input.keyboard?.on('keydown-ENTER', () => this.endTurn());
     this.input.keyboard?.on('keydown-R', () => this.restart());
+    // Q 键：强制胜利（测试用，配合自动移动测试）
+    this.input.keyboard?.on('keydown-Q', () => {
+      if (!this.battleEnded) {
+        console.log('[战斗调试] 强制胜利（测试用）');
+        this.battleEnded = true;
+        const gameState = getGameState();
+        gameState.battleResult = 'victory';
+        gameState.caravanHp = this.battleManager.state.caravanDurability;
+        const { x, y } = gameState.currentPosition;
+        const cell = gameState.mapCells[y][x];
+        cell.isCleared = true;
+        cell.isRevealed = true;
+        gameState.currentBattleType = null;
+        updateReachableCells(gameState);
+        setGameState(gameState);
+        this.scene.start('MapScene');
+      }
+    });
 
     console.log('[余烬商队] 战斗场景初始化完成');
     console.log('队伍:', characters.map(c => c.def.name).join(', '));
@@ -660,7 +678,13 @@ export class BattleScene extends Phaser.Scene {
   private updateEnemyPanel(index: number): void {
     const panel = this.enemyPanels[index];
     const enemy = this.battleManager.state.enemies[index];
-    
+
+    // 检查敌人是否存在
+    if (!enemy || !enemy.def) {
+      console.warn(`[战斗] 敌人 ${index} 不存在`);
+      return;
+    }
+
     // 清除旧文本
     panel.each((child) => {
       if (child instanceof Phaser.GameObjects.Text) {
