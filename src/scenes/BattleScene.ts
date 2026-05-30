@@ -3,7 +3,7 @@ import { BattleManager } from '../systems/BattleManager';
 import { createCharacterState, getStartingDeck, CHARACTER_DEFS } from '../data/characters';
 import { createEnemyState, ENEMY_DEFS, ENEMY_ACTIONS, getEnemyNextAction } from '../data/enemies';
 import { CharacterState, EnemyState, CardDef } from '../data/types';
-import { getGameState, setGameState, resetGameState, checkVictory, updateReachableCells } from '../systems/GameState';
+import { getGameState, setGameState, resetGameState, checkVictory, updateReachableCells, getAvailableCharacters, syncCharacterStatesFromBattle, checkExpeditionFailed } from '../systems/GameState';
 
 export class BattleScene extends Phaser.Scene {
   private battleManager!: BattleManager;
@@ -50,11 +50,28 @@ export class BattleScene extends Phaser.Scene {
     // 获取游戏状态
     const gameState = getGameState();
 
-    // 创建队伍（从游戏状态中读取选择的角色）
+    // 创建队伍（从持久化角色状态加载，重伤/死亡角色不参与）
     let characters: CharacterState[];
-    if (gameState.selectedCharacters.length === 3) {
-      // 使用玩家选择的角色
-      characters = gameState.selectedCharacters.map(id => createCharacterState(id));
+    if (gameState.selectedCharacters.length === 3 && Object.keys(gameState.characterStates).length > 0) {
+      // 从持久化状态加载可用角色
+      const available = getAvailableCharacters();
+      if (available.length === 0) {
+        // 全队重伤/死亡，远征失败
+        console.log('[战斗] 全队无法战斗，远征失败');
+        this.showExpeditionFailed();
+        return;
+      }
+      // 为每个可用角色创建战斗副本（保留HP和重伤状态，但重置牌组）
+      characters = available.map(cs => {
+        const fresh = createCharacterState(cs.def.id);
+        fresh.currentHp = cs.currentHp;
+        fresh.graveWounds = cs.graveWounds;
+        fresh.isWounded = cs.isWounded;
+        fresh.restNodes = cs.restNodes;
+        fresh.isDead = cs.isDead;
+        return fresh;
+      });
+      console.log(`[战斗] 可用角色: ${characters.map(c => c.def.name).join(', ')}`);
     } else {
       // 默认测试队伍（用于直接测试战斗场景）
       characters = [
@@ -757,6 +774,18 @@ export class BattleScene extends Phaser.Scene {
     // 同步商队耐久回游戏状态
     gameState.caravanHp = this.battleManager.state.caravanDurability;
 
+    // 同步角色状态回游戏状态（处理重伤逻辑）
+    syncCharacterStatesFromBattle(this.battleManager.state.characters);
+    
+    // 检查远征是否因全队重伤/死亡而失败
+    if (checkExpeditionFailed()) {
+      console.log('[战斗] 远征失败：全队重伤或死亡');
+      gameState.currentBattleType = null;
+      setGameState(gameState);
+      this.showExpeditionFailed();
+      return;
+    }
+
     // 如果是Boss战且胜利，标记远征胜利
     if (victory && gameState.currentBattleType === 'boss') {
       gameState.battleResult = 'victory';
@@ -896,6 +925,35 @@ export class BattleScene extends Phaser.Scene {
     });
     btn.on('pointerover', () => btn.setStyle({ backgroundColor: '#3a6aca' }));
     btn.on('pointerout', () => btn.setStyle({ backgroundColor: '#2a4a8a' }));
+  }
+
+  private showExpeditionFailed(): void {
+    const w = this.scale.width;
+    const h = this.scale.height;
+
+    const overlay = this.add.graphics();
+    overlay.fillStyle(0x000000, 0.8);
+    overlay.fillRect(0, 0, w, h);
+
+    this.add.text(w / 2, h / 2 - 60, '💀 远征失败 💀', {
+      fontSize: '36px', color: '#ff4444', fontStyle: 'bold', fontFamily: 'monospace',
+    }).setOrigin(0.5);
+
+    this.add.text(w / 2, h / 2, '全队重伤或死亡，无法继续远征', {
+      fontSize: '16px', color: '#aaaaaa', fontFamily: 'monospace',
+    }).setOrigin(0.5);
+
+    const btn = this.add.text(w / 2, h / 2 + 60, '【返回主菜单】', {
+      fontSize: '18px', color: '#ffffff', backgroundColor: '#444466',
+      padding: { x: 20, y: 10 }, fontFamily: 'monospace',
+    }).setOrigin(0.5).setInteractive();
+
+    btn.on('pointerdown', () => {
+      resetGameState();
+      this.scene.start('MainMenuScene');
+    });
+    btn.on('pointerover', () => btn.setStyle({ backgroundColor: '#555577' }));
+    btn.on('pointerout', () => btn.setStyle({ backgroundColor: '#444466' }));
   }
 
   // ==================== 鼠标点击模拟：自动战斗 ====================

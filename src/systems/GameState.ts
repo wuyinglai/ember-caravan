@@ -1,4 +1,5 @@
-import { CharacterId } from '../data/characters';
+import { CharacterId, createCharacterState } from '../data/characters';
+import { CharacterState } from '../data/types';
 
 // 地图格子类型
 export type CellType = 'obstacle' | 'boss' | 'elite' | 'camp' | 'supply' | 'reward' | 'question' | 'empty';
@@ -24,6 +25,9 @@ export interface GameState {
   // 队伍
   selectedCharacters: CharacterId[];
   reserveCharacters: CharacterId[];
+
+  // 角色运行时状态（持久化）
+  characterStates: Record<CharacterId, CharacterState>;
 
   // 资源
   day: number;
@@ -73,6 +77,7 @@ export function createInitialGameState(): GameState {
   return {
     selectedCharacters: [],
     reserveCharacters: [],
+    characterStates: {} as Record<CharacterId, CharacterState>,
 
     day: 1,
     maxDay: 60,
@@ -810,4 +815,89 @@ export function setGameState(state: GameState): void {
 
 export function resetGameState(): void {
   globalGameState = createInitialGameState();
+}
+
+/**
+ * 初始化远征角色状态。在 CharacterSelectScene.startExpedition 中调用。
+ * 为每个选中角色创建 CharacterState 并存入 gameState.characterStates。
+ */
+export function initializeCharacterStates(characterIds: CharacterId[]): void {
+  const gameState = getGameState();
+  gameState.characterStates = {} as Record<CharacterId, CharacterState>;
+  for (const id of characterIds) {
+    gameState.characterStates[id] = createCharacterState(id);
+  }
+  setGameState(gameState);
+}
+
+/**
+ * 获取可战斗的角色列表（未重伤且未死亡）。
+ */
+export function getAvailableCharacters(): CharacterState[] {
+  const gameState = getGameState();
+  return gameState.selectedCharacters
+    .map(id => gameState.characterStates[id])
+    .filter(cs => cs && !cs.isWounded && !cs.isDead);
+}
+
+/**
+ * 检查远征是否因全队重伤/死亡而失败。
+ */
+export function checkExpeditionFailed(): boolean {
+  const gameState = getGameState();
+  return gameState.selectedCharacters.every(id => {
+    const cs = gameState.characterStates[id];
+    return cs && (cs.isWounded || cs.isDead);
+  });
+}
+
+/**
+ * 处理地图移动后的重伤倒计时。
+ * 每移动一个节点，所有重伤角色的 restNodes -1。
+ * restNodes <= 0 时恢复。
+ */
+export function processInjuryRecovery(): void {
+  const gameState = getGameState();
+  for (const id of gameState.selectedCharacters) {
+    const cs = gameState.characterStates[id];
+    if (!cs || !cs.isWounded || cs.isDead) continue;
+    cs.restNodes = Math.max(0, cs.restNodes - 1);
+    if (cs.restNodes <= 0) {
+      cs.isWounded = false;
+      console.log(`[重伤恢复] ${cs.def.name} 已恢复，可以重新上场`);
+    }
+  }
+  setGameState(gameState);
+}
+
+/**
+ * 将战斗后的角色状态同步回 gameState.characterStates。
+ * 处理重伤逻辑：HP<=0 的角色进入重伤。
+ */
+export function syncCharacterStatesFromBattle(battleCharacters: CharacterState[]): void {
+  const gameState = getGameState();
+  for (const bc of battleCharacters) {
+    const cs = gameState.characterStates[bc.def.id];
+    if (!cs) continue;
+    
+    // 同步 HP（不低于1，重伤时设为1）
+    cs.currentHp = bc.currentHp;
+    
+    // 处理重伤
+    if (bc.currentHp <= 0) {
+      cs.currentHp = 1;
+      cs.isWounded = true;
+      cs.graveWounds += 1;
+      cs.restNodes = 3;
+      console.log(`[重伤] ${cs.def.name} HP归零，进入重伤 (重伤次数: ${cs.graveWounds}/3)`);
+      
+      // 重伤3次，本局死亡
+      if (cs.graveWounds >= 3) {
+        cs.isDead = true;
+        cs.isWounded = false;
+        console.log(`[死亡] ${cs.def.name} 重伤次数达到3次，本局离队！`);
+      }
+    }
+  }
+  setGameState(gameState);
 }

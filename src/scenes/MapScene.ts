@@ -11,8 +11,11 @@ import {
   updateReachableCells,
   canMoveTo,
   getMovableNeighbors,
+  processInjuryRecovery,
+  checkExpeditionFailed,
 } from '../systems/GameState';
-import { CHARACTER_DEFS } from '../data/characters';
+import { CHARACTER_DEFS, createCharacterState } from '../data/characters';
+import { CharacterState } from '../data/types';
 
 /**
  * MapScene - 地图探索场景（V2 稳定重构版）
@@ -48,6 +51,8 @@ export class MapScene extends Phaser.Scene {
   // 弹窗系统：单一容器
   private modalContainer?: Phaser.GameObjects.Container;
   private modalActions: (() => void)[] = [];
+
+  private partyDisplayContainer!: Phaser.GameObjects.Container;
 
   // 自动测试状态
   private _autoTestTimer?: Phaser.Time.TimerEvent;
@@ -352,6 +357,13 @@ export class MapScene extends Phaser.Scene {
 
     // 7. 检查游戏状态（胜利/失败）
     if (this.checkGameStatus(gameState)) return;
+
+    // 8.5 处理重伤倒计时
+    processInjuryRecovery();
+    if (checkExpeditionFailed()) {
+      this.showExpeditionFailedModal();
+      return;
+    }
 
     // 8. 处理格子内容
     this.handleCellContent(cell);
@@ -1115,11 +1127,34 @@ export class MapScene extends Phaser.Scene {
   // ==================== 弹窗：营地 ====================
 
   private showCampPopup(cell: MapCell): void {
-    this.healAllCharacters(5);
-    this.modifyMorale(1);
+    const gameState = getGameState();
+    // 营地效果：所有未死亡角色 HP+5，重伤角色 restNodes-1，士气+1
+    for (const id of gameState.selectedCharacters) {
+      const cs = gameState.characterStates[id];
+      if (!cs || cs.isDead) continue;
+      cs.currentHp = Math.min(cs.def.maxHp, cs.currentHp + 5);
+      if (cs.isWounded) {
+        cs.restNodes = Math.max(0, cs.restNodes - 1);
+        if (cs.restNodes <= 0) {
+          cs.isWounded = false;
+          console.log(`[营地] ${cs.def.name} 重伤恢复，可以重新上场`);
+        }
+      }
+    }
+    gameState.morale = Math.min(10, gameState.morale + 1);
+    setGameState(gameState);
+
+    // 构建状态描述
+    const statusLines = gameState.selectedCharacters.map(id => {
+      const cs = gameState.characterStates[id];
+      if (!cs) return '';
+      const status = cs.isDead ? '💀离队' : cs.isWounded ? `🩹重伤(剩${cs.restNodes}节点)` : `❤️${cs.currentHp}/${cs.def.maxHp}`;
+      return `${cs.def.name}: ${status}`;
+    }).filter(Boolean).join('\n');
+
     this.openModal(
-      '营地',
-      '在营地休息恢复\n\n所有角色恢复 5 HP\n士气 +1',
+      '🏕️ 营地',
+      `在营地休息恢复\n\n所有未死亡角色 HP +5\n重伤角色休息倒计时 -1\n士气 +1\n\n${statusLines}`,
       [
         {
           text: '继续',
@@ -1128,6 +1163,7 @@ export class MapScene extends Phaser.Scene {
             this.closeModal();
             this.redrawMap();
             this.updateResourceDisplay();
+            this.updatePartyDisplay();
           },
         },
       ]
@@ -1138,44 +1174,67 @@ export class MapScene extends Phaser.Scene {
 
   private showSupplyPopup(cell: MapCell): void {
     const gameState = getGameState();
-    const options: { text: string; action: () => void }[] = [
-      {
-        text: '免费补给 (食物+2)',
+
+    // 构建角色状态信息
+    const charStatusLines = gameState.selectedCharacters.map(id => {
+      const cs = gameState.characterStates[id];
+      if (!cs) return '';
+      const status = cs.isDead ? '💀离队' : cs.isWounded ? `🩹重伤(剩${cs.restNodes}节点)` : `❤️${cs.currentHp}/${cs.def.maxHp}`;
+      return `${cs.def.name}: ${status}`;
+    }).filter(Boolean).join('\n');
+
+    const desc = `剩余金币: ${gameState.gold}\n商队: ${gameState.caravanHp}/${gameState.caravanMaxHp}\n\n队伍状态:\n${charStatusLines}\n\n选择补给项目：`;
+
+    const options: { text: string; action: () => void }[] = [];
+
+    // 选项1：深度治疗（选择一名角色）
+    const woundedChars = gameState.selectedCharacters.filter(id => {
+      const cs = gameState.characterStates[id];
+      return cs && !cs.isDead;
+    });
+    if (woundedChars.length > 0) {
+      options.push({
+        text: '深度治疗 (选角色)',
         action: () => {
-          this.modifyFood(2);
-          this.completeCell(cell);
-          this.closeModal();
-          this.redrawMap();
-          this.updateResourceDisplay();
+          this.showDeepHealPopup(cell);
         },
+      });
+    }
+
+    // 选项2：修复商队
+    options.push({
+      text: '修复商队 (+20)',
+      action: () => {
+        gameState.caravanHp = Math.min(gameState.caravanMaxHp, gameState.caravanHp + 20);
+        setGameState(gameState);
+        this.completeCell(cell);
+        this.closeModal();
+        this.redrawMap();
+        this.updateResourceDisplay();
+        this.updatePartyDisplay();
       },
-    ];
-    if (gameState.gold >= 20) {
-      options.push({
-        text: '修理商队 (-20金)',
-        action: () => {
-          this.modifyGold(-20);
-          this.modifyCaravanHp(15);
-          this.completeCell(cell);
-          this.closeModal();
-          this.redrawMap();
-          this.updateResourceDisplay();
-        },
-      });
-    }
-    if (gameState.gold >= 15) {
-      options.push({
-        text: '鼓舞队伍 (-15金)',
-        action: () => {
-          this.modifyGold(-15);
-          this.modifyMorale(2);
-          this.completeCell(cell);
-          this.closeModal();
-          this.redrawMap();
-          this.updateResourceDisplay();
-        },
-      });
-    }
+    });
+
+    // 选项3：全队休整
+    options.push({
+      text: '全队休整 (HP+8, 士气+1)',
+      action: () => {
+        for (const id of gameState.selectedCharacters) {
+          const cs = gameState.characterStates[id];
+          if (!cs || cs.isDead) continue;
+          cs.currentHp = Math.min(cs.def.maxHp, cs.currentHp + 8);
+        }
+        gameState.morale = Math.min(10, gameState.morale + 1);
+        setGameState(gameState);
+        this.completeCell(cell);
+        this.closeModal();
+        this.redrawMap();
+        this.updateResourceDisplay();
+        this.updatePartyDisplay();
+      },
+    });
+
+    // 离开选项
     options.push({
       text: '离开',
       action: () => {
@@ -1185,10 +1244,65 @@ export class MapScene extends Phaser.Scene {
         this.updateResourceDisplay();
       },
     });
+
+    this.openModal('补给站', desc, options);
+  }
+
+  private showDeepHealPopup(supplyCell: MapCell): void {
+    const gameState = getGameState();
+    const healableChars = gameState.selectedCharacters.filter(id => {
+      const cs = gameState.characterStates[id];
+      return cs && !cs.isDead;
+    });
+
+    const options: { text: string; action: () => void }[] = healableChars.map(id => {
+      const cs = gameState.characterStates[id];
+      const woundedTag = cs.isWounded ? ' [🩹重伤]' : '';
+      return {
+        text: `${cs.def.name}${woundedTag} (${cs.currentHp}/${cs.def.maxHp})`,
+        action: () => {
+          // 深度治疗：HP恢复满，清除重伤
+          cs.currentHp = cs.def.maxHp;
+          cs.isWounded = false;
+          cs.restNodes = 0;
+          // injuryCount 不减少
+          setGameState(gameState);
+          console.log(`[补给] 深度治疗: ${cs.def.name} → HP满, 重伤清除`);
+          this.completeCell(supplyCell);
+          this.closeModal();
+          this.redrawMap();
+          this.updateResourceDisplay();
+          this.updatePartyDisplay();
+        },
+      };
+    });
+
+    options.push({
+      text: '取消',
+      action: () => {
+        this.closeModal();
+        // 重新显示补给站弹窗
+        this.showSupplyPopup(supplyCell);
+      },
+    });
+
+    this.openModal('深度治疗', '选择一名角色进行深度治疗\n\nHP 恢复到最大值\n清除当前重伤状态\n(重伤次数不减少)', options);
+  }
+
+  private showExpeditionFailedModal(): void {
     this.openModal(
-      '补给站',
-      `剩余金币: ${gameState.gold}\n\n选择补给项目：`,
-      options
+      '💀 远征失败',
+      '全队重伤或死亡，无法继续远征',
+      [
+        {
+          text: '返回主菜单',
+          action: () => {
+            resetGameState();
+            this.closeModal();
+            this.scene.start('MainMenuScene');
+          },
+        },
+      ]
     );
   }
 
@@ -1274,7 +1388,14 @@ export class MapScene extends Phaser.Scene {
   }
 
   private healAllCharacters(amount: number): void {
-    console.log(`[地图V2] 所有角色恢复 ${amount} HP`);
+    const gameState = getGameState();
+    for (const id of gameState.selectedCharacters) {
+      const cs = gameState.characterStates[id];
+      if (!cs || cs.isDead) continue;
+      cs.currentHp = Math.min(cs.def.maxHp, cs.currentHp + amount);
+      console.log(`[地图V2] ${cs.def.name} 恢复 ${amount} HP → ${cs.currentHp}/${cs.def.maxHp}`);
+    }
+    setGameState(gameState);
   }
 
   private healRandomCharacter(amount: number): void {
@@ -1327,6 +1448,17 @@ export class MapScene extends Phaser.Scene {
   private createPartyDisplay(
     gameState: ReturnType<typeof getGameState>
   ): void {
+    this.partyDisplayContainer = this.add.container(0, 0);
+    this.updatePartyDisplay();
+  }
+
+  private updatePartyDisplay(): void {
+    // 清除旧显示
+    if (this.partyDisplayContainer) {
+      this.partyDisplayContainer.removeAll(true);
+    }
+
+    const gameState = getGameState();
     const chars = gameState.selectedCharacters;
     const spacing = 100;
     const totalWidth = (chars.length - 1) * spacing;
@@ -1334,22 +1466,64 @@ export class MapScene extends Phaser.Scene {
     const startY = 45;
 
     chars.forEach((charId, index) => {
-      const char = CHARACTER_DEFS[charId];
+      const cs = gameState.characterStates[charId];
+      const charDef = CHARACTER_DEFS[charId];
       const px = x + index * spacing;
 
+      // 背景
       const bg = this.add.graphics();
-      bg.fillStyle(char.color, 0.3);
-      bg.fillRect(px - 20, startY, 40, 40);
-      bg.lineStyle(2, char.color, 1);
-      bg.strokeRect(px - 20, startY, 40, 40);
+      if (cs?.isDead) {
+        bg.fillStyle(0x333333, 0.5);
+      } else if (cs?.isWounded) {
+        bg.fillStyle(0x662222, 0.5);
+      } else {
+        bg.fillStyle(charDef.color, 0.3);
+      }
+      bg.fillRect(px - 25, startY - 5, 50, 50);
+      bg.lineStyle(2, cs?.isDead ? 0x444444 : cs?.isWounded ? 0xaa3333 : charDef.color, 1);
+      bg.strokeRect(px - 25, startY - 5, 50, 50);
+      this.partyDisplayContainer.add(bg);
 
+      // 角色名
       this.add
-        .text(px, startY + 20, char.name.slice(0, 2), {
+        .text(px, startY + 5, charDef.name.slice(0, 2), {
           fontSize: '14px',
-          color: '#ffffff',
+          color: cs?.isDead ? '#666666' : '#ffffff',
           fontFamily: 'monospace',
         })
         .setOrigin(0.5);
+
+      // HP 或状态
+      if (cs) {
+        if (cs.isDead) {
+          this.add
+            .text(px, startY + 22, '💀离队', {
+              fontSize: '10px', color: '#ff4444', fontFamily: 'monospace',
+            })
+            .setOrigin(0.5);
+        } else if (cs.isWounded) {
+          this.add
+            .text(px, startY + 22, `🩹${cs.restNodes}`, {
+              fontSize: '10px', color: '#ff8844', fontFamily: 'monospace',
+            })
+            .setOrigin(0.5);
+        } else {
+          this.add
+            .text(px, startY + 22, `${cs.currentHp}/${cs.def.maxHp}`, {
+              fontSize: '10px', color: '#88ff88', fontFamily: 'monospace',
+            })
+            .setOrigin(0.5);
+        }
+
+        // 重伤次数
+        if (cs.graveWounds > 0) {
+          this.add
+            .text(px, startY + 35, `${cs.graveWounds}/3`, {
+              fontSize: '9px', color: cs.graveWounds >= 3 ? '#ff4444' : '#ffaa44', fontFamily: 'monospace',
+            })
+            .setOrigin(0.5);
+        }
+      }
     });
   }
 

@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 import { CHARACTER_DEFS, CharacterId } from '../data/characters';
-import { getGameState, setGameState, createExpeditionMap, updateReachableCells } from '../systems/GameState';
+import { getGameState, setGameState, createExpeditionMap, updateReachableCells, initializeCharacterStates } from '../systems/GameState';
 
 export class CharacterSelectScene extends Phaser.Scene {
   private selectedChars: CharacterId[] = [];
@@ -281,6 +281,9 @@ export class CharacterSelectScene extends Phaser.Scene {
     gameState.bossPosition = { ...bossPos };
     gameState.expeditionGoal = expeditionGoal;
     updateReachableCells(gameState);
+
+    // 初始化角色运行时状态
+    initializeCharacterStates(gameState.selectedCharacters);
 
     setGameState(gameState);
 
