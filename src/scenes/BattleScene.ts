@@ -960,30 +960,47 @@ export class BattleScene extends Phaser.Scene {
   }
 
   /** 找到一张可以打出的牌 */
+  /** 找到一张可出的牌，攻击优先（type=attack 的牌优先返回） */
   private findPlayableCard(): { charIndex: number; cardIndex: number; globalIndex: number } | null {
     const state = this.battleManager.state;
     let globalIdx = 0;
+    let attackCard: { charIndex: number; cardIndex: number; globalIndex: number } | null = null;
+    let anyCard: { charIndex: number; cardIndex: number; globalIndex: number } | null = null;
+
     for (let ci = 0; ci < state.characters.length; ci++) {
       const char = state.characters[ci];
       if (char.currentHp <= 0) continue;
       for (let hi = 0; hi < char.hand.length; hi++) {
         const card = char.hand[hi];
         if (card && card.cost <= state.actionPoints) {
-          return { charIndex: ci, cardIndex: hi, globalIndex: globalIdx };
+          const info = { charIndex: ci, cardIndex: hi, globalIndex: globalIdx };
+          if (!attackCard && card.type === 'attack') {
+            attackCard = info;
+          }
+          if (!anyCard) {
+            anyCard = info;
+          }
         }
         globalIdx++;
       }
     }
-    return null;
+    // 攻击优先，没有攻击牌才出其他牌
+    return attackCard || anyCard;
   }
 
-  /** 找到一个存活的敌人 */
+  /** 找到当前HP最低的存活敌人 */
   private findAliveEnemy(): number {
     const state = this.battleManager.state;
+    let minHp = Infinity;
+    let targetIdx = -1;
     for (let i = 0; i < state.enemies.length; i++) {
-      if (state.enemies[i].currentHp > 0) return i;
+      const e = state.enemies[i];
+      if (e.currentHp > 0 && e.currentHp < minHp) {
+        minHp = e.currentHp;
+        targetIdx = i;
+      }
     }
-    return -1;
+    return targetIdx;
   }
 
   /** 战斗结束后模拟点击返回按钮 */
