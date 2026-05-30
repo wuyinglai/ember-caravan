@@ -112,18 +112,46 @@ export class MapScene extends Phaser.Scene {
         });
       }
     }
+
+    // 如果是从战斗返回的鼠标点击模拟测试，继续执行
+    if (gs._isClickTesting && gs._clickTestResumeStep > 0) {
+      const gameOver2 = checkGameOver(gs);
+      if (gameOver2.isOver) {
+        console.log('[鼠标模拟测试] 停止：游戏结束');
+        gs._isClickTesting = false;
+        gs._clickTestResumeStep = 0;
+        gs._clickTestStep = 0;
+        setGameState(gs);
+      } else {
+        console.log(
+          `[鼠标模拟测试] 从战斗返回，继续点击模拟测试 step=${gs._clickTestResumeStep}`
+        );
+        gs._clickTestStep = gs._clickTestResumeStep;
+        gs._clickTestResumeStep = 0;
+        setGameState(gs);
+        this.time.delayedCall(500, () => {
+          this.clickSimStep();
+        });
+      }
+    }
   }
 
   // ==================== 单一 pointerdown 监听 ====================
 
   private setupMapPointer(): void {
     this.input.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
-      // 如果有弹窗打开，不处理地图点击
-      if (this.modalContainer) return;
+      this.handleMapPointer(pointer);
+    });
+  }
 
-      // 将鼠标坐标转换为地图容器内坐标
-      const worldX = pointer.x - this.mapContainer.x;
-      const worldY = pointer.y - this.mapContainer.y;
+  /** 处理地图 pointer 点击（坐标换算→tryMoveTo） */
+  private handleMapPointer(pointer: Phaser.Input.Pointer): void {
+    // 如果有弹窗打开，不处理地图点击
+    if (this.modalContainer) return;
+
+    // 将鼠标坐标转换为地图容器内坐标
+    const worldX = pointer.x - this.mapContainer.x;
+    const worldY = pointer.y - this.mapContainer.y;
 
       // 换算成格子坐标
       const cellX = Math.floor(worldX / (this.cellSize + this.cellGap));
@@ -155,7 +183,6 @@ export class MapScene extends Phaser.Scene {
 
       // 统一调用 tryMoveTo
       this.tryMoveTo(cellX, cellY);
-    });
   }
 
   // ==================== 键盘事件 ====================
@@ -193,11 +220,15 @@ export class MapScene extends Phaser.Scene {
           this.centerCameraOnPlayer();
           break;
         case 't':
-          this.debugRandomMove();
+          this.clickSimulationTest();
           break;
         case 'y':
           this.autoMoveTest();
           break;
+        case 'g': {
+          this.directionalClickTest();
+          break;
+        }
         case 'escape':
           if (this.modalContainer) {
             console.log('[地图V2] Escape 关闭弹窗');
@@ -1386,38 +1417,166 @@ export class MapScene extends Phaser.Scene {
     });
   }
 
-  // ==================== 调试功能：T 键随机走一步 ====================
+  // ==================== 调试功能：T 键鼠标点击模拟测试 ====================
 
-  private debugRandomMove(): void {
-    // 如果有弹窗打开，自动执行第一个弹窗按钮
-    if (this.modalContainer) {
-      console.log('[地图V2] T键检测到弹窗，自动执行第一个选项');
-      this.executeFirstModalAction();
+  /**
+   * 真正的鼠标点击模拟测试。
+   * 通过 Phaser Input Manager 发出真实的 pointerdown 事件，
+   * 走完整个 UI 交互链路（与人类点击完全一致）。
+   *
+   * 流程：
+   * 1. 模拟点击地图格子移动（pointerdown → setupMapPointer handler → tryMoveTo）
+   * 2. 弹窗出现时，找到弹窗按钮游戏对象，emit pointerdown
+   * 3. 如果进入战斗，BattleScene 中模拟点击卡牌→敌人→结束回合
+   */
+  private clickSimulationTest(): void {
+    const gs = getGameState();
+    if (gs._isClickTesting) {
+      console.log('[鼠标模拟测试] 已在进行中，忽略');
+      return;
+    }
+    gs._isClickTesting = true;
+    gs._clickTestStep = 0;
+    setGameState(gs);
+    console.log('[鼠标模拟测试] 开始！模拟人类鼠标点击操作（30步）');
+    this.clickSimStep();
+  }
+
+  private clickSimStep(): void {
+    const gs = getGameState();
+    const step = gs._clickTestStep;
+
+    if (step >= 30) {
+      console.log('[鼠标模拟测试] 完成！成功模拟 30 步鼠标点击');
+      gs._isClickTesting = false;
+      gs._clickTestStep = 0;
+      setGameState(gs);
       return;
     }
 
+    // 如果有弹窗，模拟点击弹窗按钮
+    if (this.modalContainer) {
+      this.clickSimModalButton(step);
+      return;
+    }
+
+    // 模拟点击地图格子
+    this.clickSimMapCell(step);
+  }
+
+  /** 模拟点击弹窗中的第一个按钮 */
+  private clickSimModalButton(step: number): void {
+    // 在 modalContainer 中找到按钮（Text 游戏对象且 interactive 的）
+    const buttons: Phaser.GameObjects.Text[] = [];
+    if (this.modalContainer) {
+      this.modalContainer.each((child) => {
+        if (child instanceof Phaser.GameObjects.Text && child.input?.enabled) {
+          buttons.push(child);
+        }
+      });
+    }
+
+    if (buttons.length > 0) {
+      const btn = buttons[0];
+      console.log(`[鼠标模拟测试] step=${step} 模拟点击弹窗按钮: "${btn.text}"`);
+
+      // 保存恢复步数
+      const gs = getGameState();
+      gs._clickTestResumeStep = step + 1;
+      setGameState(gs);
+
+      // 通过游戏对象的 emit 直接触发 pointerdown 事件
+      // （与人类点击弹窗按钮走完全相同的事件链路）
+      btn.emit('pointerdown');
+
+      // 延迟检查是否进入战斗
+      this.time.delayedCall(500, () => {
+        if (!this.scene.isActive()) {
+          console.log(`[鼠标模拟测试] step=${step} 弹窗操作后进入战斗，等待返回...`);
+          return;
+        }
+        const gs2 = getGameState();
+        gs2._clickTestResumeStep = 0;
+        setGameState(gs2);
+        gs2._clickTestStep = step + 1;
+        setGameState(gs2);
+        this.clickSimStep();
+      });
+    } else {
+      console.log(`[鼠标模拟测试] step=${step} 弹窗中没有找到可点击按钮，跳过`);
+      const gs = getGameState();
+      gs._clickTestStep = step + 1;
+      setGameState(gs);
+      this.clickSimStep();
+    }
+  }
+
+  /** 模拟点击地图格子（通过 Phaser pointerdown 事件） */
+  private clickSimMapCell(step: number): void {
     const gameState = getGameState();
     const movable = getMovableNeighbors(gameState);
 
     if (movable.length === 0) {
-      console.log(
-        `[地图V2] T键无可走格！current=(${gameState.currentPosition.x},${gameState.currentPosition.y})`
-      );
+      console.log(`[鼠标模拟测试] step=${step} 无可走格，测试结束`);
+      const gs = getGameState();
+      gs._isClickTesting = false;
+      gs._clickTestStep = 0;
+      setGameState(gs);
       return;
     }
 
-    const target =
-      movable[Math.floor(Math.random() * movable.length)];
-    gameState._debugStep++;
-    setGameState(gameState);
+    const target = movable[Math.floor(Math.random() * movable.length)];
+
+    // 计算格子中心在 canvas 中的坐标
+    // 格子坐标 = cellIndex * (cellSize + cellGap) + cellSize/2
+    // pointer 坐标 = 格子坐标 + mapContainer 位置（因为 handleMapPointer 会减去 mapContainer 位置）
+    const cellCenterX = target.x * (this.cellSize + this.cellGap) + this.cellSize / 2;
+    const cellCenterY = target.y * (this.cellSize + this.cellGap) + this.cellSize / 2;
 
     console.log(
-      `[地图V2] T键 step=${gameState._debugStep}`,
-      `(${gameState.currentPosition.x},${gameState.currentPosition.y}) -> (${target.x},${target.y})`,
-      `movableCount=${movable.length}`
+      `[鼠标模拟测试] step=${step + 1} 模拟点击格子 (${target.x},${target.y})`,
+      `mapContainer=(${this.mapContainer.x},${this.mapContainer.y})`,
+      `pointer=(${cellCenterX + this.mapContainer.x},${cellCenterY + this.mapContainer.y})`
     );
 
-    this.tryMoveTo(target.x, target.y);
+    // 保存恢复步数
+    const gs = getGameState();
+    gs._clickTestResumeStep = step + 1;
+    gs._clickTestStep = step + 1;
+    setGameState(gs);
+
+    // 构造模拟 pointer 对象，设置位置为格子中心在屏幕上的实际坐标
+    const pointer = this.input.activePointer;
+    pointer.x = cellCenterX + this.mapContainer.x;
+    pointer.y = cellCenterY + this.mapContainer.y;
+
+    // 直接调用 handleMapPointer，走完完整的坐标换算→tryMoveTo 链路
+    // （与人类点击地图格子走完全相同的代码路径）
+    this.handleMapPointer(pointer);
+
+    // 延迟后检查状态
+    this.time.delayedCall(300, () => {
+      // 检查是否弹出了弹窗
+      if (this.modalContainer) {
+        console.log(`[鼠标模拟测试] step=${step + 1} 点击后弹出弹窗，自动点击按钮`);
+        this.time.delayedCall(500, () => {
+          this.clickSimStep(); // clickSimStep 会检测到弹窗并点击按钮
+        });
+        return;
+      }
+
+      // 检查是否进入战斗
+      if (!this.scene.isActive()) {
+        console.log(`[鼠标模拟测试] step=${step + 1} 进入战斗，等待返回...`);
+        return; // BattleScene 的 clickSimAutoBattle 会处理战斗，返回后 create 中恢复
+      }
+
+      // 正常继续
+      const gs2 = getGameState();
+      gs2._clickTestResumeStep = 0;
+      setGameState(gs2);
+      this.clickSimStep();
+    });
   }
 
   // ==================== 调试功能：Y 键自动 200 步 ====================
@@ -1590,5 +1749,133 @@ export class MapScene extends Phaser.Scene {
       setGameState(gs2);
       this.autoMoveStep(step + 1);
     });
+  }
+
+  // ==================== 调试功能：G 键方向模拟测试（走向右上角） ====================
+
+  private directionalClickTest(): void {
+    const gs = getGameState();
+    if (gs._isClickTesting) {
+      console.log('[方向模拟测试] 已在进行中，忽略');
+      return;
+    }
+    gs._isClickTesting = true;
+    gs._clickTestStep = 0;
+    gs._clickTestMaxSteps = 200;
+    setGameState(gs);
+    console.log('[方向模拟测试] 开始！目标：地图右上角，最多200步');
+    this.directionalSimStep();
+  }
+
+  private directionalSimStep(): void {
+    const gs = getGameState();
+    const step = gs._clickTestStep;
+    const maxSteps = gs._clickTestMaxSteps || 200;
+
+    if (step >= maxSteps) {
+      console.log(`[方向模拟测试] 达到最大步数 ${maxSteps}，测试结束`);
+      gs._isClickTesting = false;
+      gs._clickTestStep = 0;
+      setGameState(gs);
+      return;
+    }
+
+    // 检查是否已到达右上角区域 (x >= 17, y <= 2)
+    if (gs.currentPosition.x >= 17 && gs.currentPosition.y <= 2) {
+      console.log(`[方向模拟测试] 已到达右上角区域 (${gs.currentPosition.x},${gs.currentPosition.y})，测试结束！`);
+      gs._isClickTesting = false;
+      gs._clickTestStep = 0;
+      setGameState(gs);
+      return;
+    }
+
+    // 如果有弹窗，模拟点击弹窗按钮
+    if (this.modalContainer) {
+      this.clickSimModalButton(step);
+      return;
+    }
+
+    // 获取可移动的相邻格子
+    const movable = getMovableNeighbors(gs);
+    if (movable.length === 0) {
+      console.log(`[方向模拟测试] step=${step} 无可走格，测试结束`);
+      gs._isClickTesting = false;
+      gs._clickTestStep = 0;
+      setGameState(gs);
+      return;
+    }
+
+    // 按照朝右上角的方向排序：优先向右(+x)和向上(-y)
+    const target = this.pickDirectionalTarget(movable, gs.currentPosition);
+    
+    console.log(
+      `[方向模拟测试] step=${step + 1} → (${target.x},${target.y})` +
+      ` 当前位置=(${gs.currentPosition.x},${gs.currentPosition.y})`
+    );
+
+    // 保存恢复步数
+    gs._clickTestResumeStep = step + 1;
+    gs._clickTestStep = step + 1;
+    setGameState(gs);
+
+    // 模拟点击格子
+    const cellCenterX = target.x * (this.cellSize + this.cellGap) + this.cellSize / 2;
+    const cellCenterY = target.y * (this.cellSize + this.cellGap) + this.cellSize / 2;
+    const pointer = this.input.activePointer;
+    pointer.x = cellCenterX + this.mapContainer.x;
+    pointer.y = cellCenterY + this.mapContainer.y;
+    this.handleMapPointer(pointer);
+
+    // 延迟后检查状态
+    this.time.delayedCall(300, () => {
+      if (this.modalContainer) {
+        console.log(`[方向模拟测试] step=${step + 1} 弹出弹窗，自动点击`);
+        this.time.delayedCall(500, () => {
+          this.directionalSimStep();
+        });
+        return;
+      }
+
+      // 检查是否进入战斗
+      if (!this.scene.isActive()) {
+        console.log(`[方向模拟测试] step=${step + 1} 进入战斗，等待返回...`);
+        return; // BattleScene 的 clickSimAutoBattle 会处理
+      }
+
+      // 正常继续
+      const gs2 = getGameState();
+      gs2._clickTestResumeStep = 0;
+      setGameState(gs2);
+      this.directionalSimStep();
+    });
+  }
+
+  private pickDirectionalTarget(
+    movable: Array<{ x: number; y: number }>,
+    current: { x: number; y: number }
+  ): { x: number; y: number } {
+    // 目标：右上角 (19, 0)
+    // 对每个可移动格子计算到目标的曼哈顿距离，选最近的
+    // 同时加入少量随机性避免完全 deterministic
+    const targetX = 19;
+    const targetY = 0;
+
+    // 按 "距离目标的改善程度" 排序，优先选择能显著缩短距离的格子
+    const scored = movable.map(m => {
+      const currentDist = Math.abs(current.x - targetX) + Math.abs(current.y - targetY);
+      const newDist = Math.abs(m.x - targetX) + Math.abs(m.y - targetY);
+      const improvement = currentDist - newDist; // 正数表示更接近目标
+      return { ...m, improvement, dist: newDist };
+    });
+
+    // 优先选择 improvement 最大的（最接近目标的）
+    // 如果有多个相同 improvement，随机选一个
+    scored.sort((a, b) => b.improvement - a.improvement || (Math.random() - 0.5));
+
+    // 80% 概率选最优，20% 概率随机（避免卡在局部最优）
+    if (Math.random() < 0.8 && scored.length > 0) {
+      return scored[0];
+    }
+    return movable[Math.floor(Math.random() * movable.length)];
   }
 }

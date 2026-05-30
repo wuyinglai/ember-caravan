@@ -29,6 +29,16 @@ export class BattleScene extends Phaser.Scene {
   }
   
   create() {
+    // 重置实例变量（Scene 可能被重用）
+    this.characterPanels = [];
+    this.characterSkillTexts = [];
+    this.enemyPanels = [];
+    this.cardTexts = [];
+    this.selectedCard = null;
+    this.selectedEnemy = null;
+    this.battleEnded = false;
+    this.skillTooltip = null;
+
     const w = this.scale.width;
     const h = this.scale.height;
 
@@ -117,6 +127,14 @@ export class BattleScene extends Phaser.Scene {
     console.log('[余烬商队] 战斗场景初始化完成');
     console.log('队伍:', characters.map(c => c.def.name).join(', '));
     console.log('敌人:', enemies.map(e => e.def.name).join(', '));
+
+    // 如果是鼠标点击模拟测试触发的战斗，自动模拟点击操作
+    if (gameState._isClickTesting) {
+      console.log('[鼠标模拟测试-战斗] 检测到点击测试模式，自动模拟战斗操作');
+      this.time.delayedCall(800, () => {
+        this.clickSimAutoBattle();
+      });
+    }
   }
   
   private createUI(): void {
@@ -623,13 +641,17 @@ export class BattleScene extends Phaser.Scene {
     this.caravanText.setStyle({ color: caravanColor });
     
     // 更新角色面板
-    for (let i = 0; i < this.characterPanels.length; i++) {
-      this.updateCharacterPanel(i);
+    for (let i = 0; i < this.battleManager.state.characters.length; i++) {
+      if (i < this.characterPanels.length) {
+        this.updateCharacterPanel(i);
+      }
     }
     
     // 更新敌人面板
-    for (let i = 0; i < this.enemyPanels.length; i++) {
-      this.updateEnemyPanel(i);
+    for (let i = 0; i < this.battleManager.state.enemies.length; i++) {
+      if (i < this.enemyPanels.length) {
+        this.updateEnemyPanel(i);
+      }
     }
     
     // 更新手牌
@@ -853,5 +875,147 @@ export class BattleScene extends Phaser.Scene {
     });
     btn.on('pointerover', () => btn.setStyle({ backgroundColor: '#3a6aca' }));
     btn.on('pointerout', () => btn.setStyle({ backgroundColor: '#2a4a8a' }));
+  }
+
+  // ==================== 鼠标点击模拟：自动战斗 ====================
+
+  /**
+   * 通过 Phaser Input Manager 发出真实的 pointerdown 事件，
+   * 模拟人类在战斗中的点击操作：选卡→选敌人→出牌→结束回合。
+   */
+  private clickSimAutoBattle(): void {
+    if (this.battleEnded) {
+      console.log('[鼠标模拟测试-战斗] 战斗已结束，模拟点击返回按钮');
+      this.clickSimReturnButton();
+      return;
+    }
+
+    const state = this.battleManager.state;
+
+    // 如果有行动力，尝试出牌
+    if (state.actionPoints > 0) {
+      // 找到一张可出的牌
+      const cardInfo = this.findPlayableCard();
+      if (cardInfo) {
+        // 找到一个存活的敌人
+        const enemyIdx = this.findAliveEnemy();
+        if (enemyIdx >= 0) {
+          console.log(
+            `[鼠标模拟测试-战斗] 模拟出牌: ${state.characters[cardInfo.charIndex].def.name}` +
+            ` 的【${state.characters[cardInfo.charIndex].hand[cardInfo.cardIndex]?.name || '?'}】` +
+            ` → ${state.enemies[enemyIdx].def.name}`
+          );
+
+          // 模拟点击卡牌（通过游戏对象 emit 触发 pointerdown 事件）
+          if (this.cardTexts[cardInfo.globalIndex]) {
+            this.cardTexts[cardInfo.globalIndex].emit('pointerdown');
+          }
+
+          // 延迟后模拟点击敌人
+          this.time.delayedCall(300, () => {
+            if (this.battleEnded) {
+              this.clickSimReturnButton();
+              return;
+            }
+            if (this.enemyPanels[enemyIdx]) {
+              // 找到敌人面板中的 Zone（点击区域）
+              let hitZone: Phaser.GameObjects.Zone | null = null;
+              this.enemyPanels[enemyIdx].each((child) => {
+                if (child instanceof Phaser.GameObjects.Zone) {
+                  hitZone = child;
+                }
+              });
+              if (hitZone) {
+                hitZone.emit('pointerdown');
+              }
+            }
+
+            // 延迟后继续下一轮
+            this.time.delayedCall(500, () => {
+              this.clickSimAutoBattle();
+            });
+          });
+          return;
+        }
+      }
+    }
+
+    // 检查是否所有敌人都已死亡
+    if (this.findAliveEnemy() < 0) {
+      console.log('[鼠标模拟测试-战斗] 所有敌人已死亡，等待战斗结束...');
+      this.time.delayedCall(500, () => {
+        this.clickSimAutoBattle();
+      });
+      return;
+    }
+
+    // 没有可出的牌或没有行动力，结束回合
+    console.log('[鼠标模拟测试-战斗] 模拟点击"结束回合"按钮');
+    this.endTurnBtn.emit('pointerdown');
+
+    // 延迟后继续下一轮
+    this.time.delayedCall(800, () => {
+      this.clickSimAutoBattle();
+    });
+  }
+
+  /** 找到一张可以打出的牌 */
+  private findPlayableCard(): { charIndex: number; cardIndex: number; globalIndex: number } | null {
+    const state = this.battleManager.state;
+    let globalIdx = 0;
+    for (let ci = 0; ci < state.characters.length; ci++) {
+      const char = state.characters[ci];
+      if (char.currentHp <= 0) continue;
+      for (let hi = 0; hi < char.hand.length; hi++) {
+        const card = char.hand[hi];
+        if (card && card.cost <= state.actionPoints) {
+          return { charIndex: ci, cardIndex: hi, globalIndex: globalIdx };
+        }
+        globalIdx++;
+      }
+    }
+    return null;
+  }
+
+  /** 找到一个存活的敌人 */
+  private findAliveEnemy(): number {
+    const state = this.battleManager.state;
+    for (let i = 0; i < state.enemies.length; i++) {
+      if (state.enemies[i].currentHp > 0) return i;
+    }
+    return -1;
+  }
+
+  /** 战斗结束后模拟点击返回按钮 */
+  private clickSimReturnButton(): void {
+    // 优先找"返回地图"按钮（战斗胜利后出现），排除"重新开始(R)"（这是重启战斗的按钮）
+    let returnBtn: Phaser.GameObjects.Text | null = null;
+    let restartBtn: Phaser.GameObjects.Text | null = null;
+    this.children.each((child) => {
+      if (child instanceof Phaser.GameObjects.Text && child.input?.enabled) {
+        const text = child.text || '';
+        if (text.includes('返回地图') || text.includes('返回主菜单')) {
+          returnBtn = child;
+        } else if (text.includes('重新开始') && !text.includes('R)')) {
+          // 仅匹配战斗结束弹窗中的"重新开始"（不含快捷键提示的）
+          restartBtn = child;
+        }
+      }
+    });
+
+    const btn = returnBtn || restartBtn;
+    if (btn) {
+      console.log(`[鼠标模拟测试-战斗] 模拟点击返回按钮: "${btn.text}"`);
+      btn.emit('pointerdown');
+    } else {
+      console.log('[鼠标模拟测试-战斗] 未找到返回按钮，尝试直接切换到MapScene');
+      // 如果找不到按钮，直接切换场景
+      const gameState = getGameState();
+      if (gameState._isClickTesting) {
+        updateReachableCells(gameState);
+        setGameState(gameState);
+        this.scene.start('MapScene');
+      }
+    }
   }
 }

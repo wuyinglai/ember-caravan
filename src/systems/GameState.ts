@@ -53,6 +53,12 @@ export interface GameState {
   _isAutoMoving: boolean;
   _autoMoveResumeStep: number;
   _debugStep: number;
+
+  // 鼠标点击模拟测试状态（调试用）
+  _isClickTesting: boolean;
+  _clickTestStep: number;
+  _clickTestResumeStep: number;
+  _clickTestMaxSteps: number;
 }
 
 // 初始游戏状态
@@ -84,6 +90,11 @@ export function createInitialGameState(): GameState {
     _isAutoMoving: false,
     _autoMoveResumeStep: 0,
     _debugStep: 0,
+
+    _isClickTesting: false,
+    _clickTestStep: 0,
+    _clickTestResumeStep: 0,
+    _clickTestMaxSteps: 0,
   };
 }
 
