@@ -1899,28 +1899,64 @@ export class MapScene extends Phaser.Scene {
     movable: Array<{ x: number; y: number }>,
     current: { x: number; y: number }
   ): { x: number; y: number } {
-    // 目标：右上角 (19, 0)
-    // 对每个可移动格子计算到目标的曼哈顿距离，选最近的
-    // 同时加入少量随机性避免完全 deterministic
+    const gs = getGameState();
     const targetX = 19;
     const targetY = 0;
 
-    // 按 "距离目标的改善程度" 排序，优先选择能显著缩短距离的格子
-    const scored = movable.map(m => {
-      const currentDist = Math.abs(current.x - targetX) + Math.abs(current.y - targetY);
-      const newDist = Math.abs(m.x - targetX) + Math.abs(m.y - targetY);
-      const improvement = currentDist - newDist; // 正数表示更接近目标
-      return { ...m, improvement, dist: newDist };
-    });
+    // BFS寻路：从当前位置找到通往目标区域的最短路径，走第一步
+    // 这样遇到障碍时会自动绕路，而不是卡在局部最优
+    const visited = new Set<string>();
+    const queue: Array<{ x: number; y: number; firstStep: { x: number; y: number } | null }> = [];
+    const startKey = `${current.x},${current.y}`;
+    visited.add(startKey);
 
-    // 优先选择 improvement 最大的（最接近目标的）
-    // 如果有多个相同 improvement，随机选一个
-    scored.sort((a, b) => b.improvement - a.improvement || (Math.random() - 0.5));
-
-    // 80% 概率选最优，20% 概率随机（避免卡在局部最优）
-    if (Math.random() < 0.8 && scored.length > 0) {
-      return scored[0];
+    // 将所有可移动邻居作为BFS起点，记录它们各自的第一步
+    for (const m of movable) {
+      const key = `${m.x},${m.y}`;
+      visited.add(key);
+      queue.push({ x: m.x, y: m.y, firstStep: { x: m.x, y: m.y } });
     }
-    return movable[Math.floor(Math.random() * movable.length)];
+
+    const dirs = [
+      { dx: 0, dy: -1 },
+      { dx: 0, dy: 1 },
+      { dx: -1, dy: 0 },
+      { dx: 1, dy: 0 },
+    ];
+
+    while (queue.length > 0) {
+      const node = queue.shift()!;
+
+      // 检查是否到达目标区域
+      if (node.x >= 17 && node.y <= 2) {
+        console.log(`[方向模拟BFS] 找到路径，第一步: (${node.firstStep!.x},${node.firstStep!.y})`);
+        return node.firstStep!;
+      }
+
+      // 扩展邻居
+      for (const dir of dirs) {
+        const nx = node.x + dir.dx;
+        const ny = node.y + dir.dy;
+        const key = `${nx},${ny}`;
+
+        if (visited.has(key)) continue;
+        if (nx < 0 || ny < 0 || nx >= gs.mapWidth || ny >= gs.mapHeight) continue;
+
+        const cell = gs.mapCells[ny][nx];
+        if (cell.type === 'obstacle') continue;
+
+        visited.add(key);
+        queue.push({ x: nx, y: ny, firstStep: node.firstStep });
+      }
+    }
+
+    // BFS找不到路径到目标区域，回退到贪心策略（选曼哈顿距离最近的）
+    console.log('[方向模拟BFS] 未找到通往目标的路径，使用贪心回退');
+    const scored = movable.map(m => {
+      const dist = Math.abs(m.x - targetX) + Math.abs(m.y - targetY);
+      return { ...m, dist };
+    });
+    scored.sort((a, b) => a.dist - b.dist || (Math.random() - 0.5));
+    return scored[0];
   }
 }

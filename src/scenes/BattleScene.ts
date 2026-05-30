@@ -1020,15 +1020,29 @@ export class BattleScene extends Phaser.Scene {
       }
     });
 
-    const btn = returnBtn || restartBtn;
-    if (btn) {
-      console.log(`[鼠标模拟测试-战斗] 模拟点击返回按钮: "${btn.text}"`);
-      btn.emit('pointerdown');
+    const gameState = getGameState();
+    const isDirectional = gameState._isDirectionalTesting;
+
+    if (returnBtn) {
+      console.log(`[鼠标模拟测试-战斗] 模拟点击返回按钮: "${returnBtn.text}"`);
+      returnBtn.emit('pointerdown');
+    } else if (restartBtn && !isDirectional) {
+      // 仅在T键随机测试时点击"重新开始"（游戏重置无所谓）
+      console.log(`[鼠标模拟测试-战斗] 模拟点击重新开始按钮: "${restartBtn.text}"`);
+      restartBtn.emit('pointerdown');
+    } else if (isDirectional) {
+      // 方向模拟测试遇到战斗失败（没有"返回地图"按钮），停止测试
+      console.log('[方向模拟测试-战斗] 战斗失败，没有返回地图按钮，停止方向模拟测试');
+      gameState._isDirectionalTesting = false;
+      gameState._directionalTestStep = 0;
+      gameState._directionalTestResumeStep = 0;
+      setGameState(gameState);
+      // 尝试直接切换回MapScene（即使游戏状态可能已结束）
+      updateReachableCells(gameState);
+      this.scene.start('MapScene');
     } else {
       console.log('[鼠标模拟测试-战斗] 未找到返回按钮，尝试直接切换到MapScene');
-      // 如果找不到按钮，直接切换场景
-      const gameState = getGameState();
-      if (gameState._isClickTesting || gameState._isDirectionalTesting) {
+      if (gameState._isClickTesting) {
         updateReachableCells(gameState);
         setGameState(gameState);
         this.scene.start('MapScene');
