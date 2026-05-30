@@ -128,8 +128,8 @@ export class BattleScene extends Phaser.Scene {
     console.log('队伍:', characters.map(c => c.def.name).join(', '));
     console.log('敌人:', enemies.map(e => e.def.name).join(', '));
 
-    // 如果是鼠标点击模拟测试触发的战斗，自动模拟点击操作
-    if (gameState._isClickTesting) {
+    // 如果是鼠标点击模拟测试或方向模拟测试触发的战斗，自动模拟点击操作
+    if (gameState._isClickTesting || gameState._isDirectionalTesting) {
       console.log('[鼠标模拟测试-战斗] 检测到点击测试模式，自动模拟战斗操作');
       this.time.delayedCall(800, () => {
         this.clickSimAutoBattle();
@@ -1028,7 +1028,7 @@ export class BattleScene extends Phaser.Scene {
       console.log('[鼠标模拟测试-战斗] 未找到返回按钮，尝试直接切换到MapScene');
       // 如果找不到按钮，直接切换场景
       const gameState = getGameState();
-      if (gameState._isClickTesting) {
+      if (gameState._isClickTesting || gameState._isDirectionalTesting) {
         updateReachableCells(gameState);
         setGameState(gameState);
         this.scene.start('MapScene');

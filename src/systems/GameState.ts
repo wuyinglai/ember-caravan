@@ -59,6 +59,12 @@ export interface GameState {
   _clickTestStep: number;
   _clickTestResumeStep: number;
   _clickTestMaxSteps: number;
+
+  // 方向模拟测试状态（G键调试用，独立于T键）
+  _isDirectionalTesting: boolean;
+  _directionalTestStep: number;
+  _directionalTestResumeStep: number;
+  _directionalTestMaxSteps: number;
 }
 
 // 初始游戏状态
@@ -95,6 +101,11 @@ export function createInitialGameState(): GameState {
     _clickTestStep: 0,
     _clickTestResumeStep: 0,
     _clickTestMaxSteps: 0,
+
+    _isDirectionalTesting: false,
+    _directionalTestStep: 0,
+    _directionalTestResumeStep: 0,
+    _directionalTestMaxSteps: 0,
   };
 }
 

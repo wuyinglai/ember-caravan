@@ -134,6 +134,28 @@ export class MapScene extends Phaser.Scene {
         });
       }
     }
+
+    // 如果是从战斗返回的G键方向模拟测试，继续执行
+    if (gs._isDirectionalTesting && gs._directionalTestResumeStep > 0) {
+      const gameOver3 = checkGameOver(gs);
+      if (gameOver3.isOver) {
+        console.log('[方向模拟测试] 停止：游戏结束');
+        gs._isDirectionalTesting = false;
+        gs._directionalTestResumeStep = 0;
+        gs._directionalTestStep = 0;
+        setGameState(gs);
+      } else {
+        console.log(
+          `[方向模拟测试] 从战斗返回，继续方向模拟测试 step=${gs._directionalTestResumeStep}`
+        );
+        gs._directionalTestStep = gs._directionalTestResumeStep;
+        gs._directionalTestResumeStep = 0;
+        setGameState(gs);
+        this.time.delayedCall(500, () => {
+          this.directionalSimStep();
+        });
+      }
+    }
   }
 
   // ==================== 单一 pointerdown 监听 ====================
@@ -1476,17 +1498,23 @@ export class MapScene extends Phaser.Scene {
       });
     }
 
+    // 判断当前是方向测试还是T键随机测试
+    const gs = getGameState();
+    const isDirectional = gs._isDirectionalTesting;
+
     if (buttons.length > 0) {
       const btn = buttons[0];
       console.log(`[鼠标模拟测试] step=${step} 模拟点击弹窗按钮: "${btn.text}"`);
 
       // 保存恢复步数
-      const gs = getGameState();
-      gs._clickTestResumeStep = step + 1;
+      if (isDirectional) {
+        gs._directionalTestResumeStep = step + 1;
+      } else {
+        gs._clickTestResumeStep = step + 1;
+      }
       setGameState(gs);
 
       // 通过游戏对象的 emit 直接触发 pointerdown 事件
-      // （与人类点击弹窗按钮走完全相同的事件链路）
       btn.emit('pointerdown');
 
       // 延迟检查是否进入战斗
@@ -1496,18 +1524,29 @@ export class MapScene extends Phaser.Scene {
           return;
         }
         const gs2 = getGameState();
-        gs2._clickTestResumeStep = 0;
-        setGameState(gs2);
-        gs2._clickTestStep = step + 1;
-        setGameState(gs2);
-        this.clickSimStep();
+        if (isDirectional) {
+          gs2._directionalTestResumeStep = 0;
+          gs2._directionalTestStep = step + 1;
+          setGameState(gs2);
+          this.directionalSimStep();
+        } else {
+          gs2._clickTestResumeStep = 0;
+          gs2._clickTestStep = step + 1;
+          setGameState(gs2);
+          this.clickSimStep();
+        }
       });
     } else {
       console.log(`[鼠标模拟测试] step=${step} 弹窗中没有找到可点击按钮，跳过`);
-      const gs = getGameState();
-      gs._clickTestStep = step + 1;
-      setGameState(gs);
-      this.clickSimStep();
+      if (isDirectional) {
+        gs._directionalTestStep = step + 1;
+        setGameState(gs);
+        this.directionalSimStep();
+      } else {
+        gs._clickTestStep = step + 1;
+        setGameState(gs);
+        this.clickSimStep();
+      }
     }
   }
 
@@ -1755,13 +1794,19 @@ export class MapScene extends Phaser.Scene {
 
   private directionalClickTest(): void {
     const gs = getGameState();
-    if (gs._isClickTesting) {
+    if (gs._isDirectionalTesting) {
       console.log('[方向模拟测试] 已在进行中，忽略');
       return;
     }
-    gs._isClickTesting = true;
-    gs._clickTestStep = 0;
-    gs._clickTestMaxSteps = 200;
+    // 同时关闭T键测试（避免冲突）
+    if (gs._isClickTesting) {
+      gs._isClickTesting = false;
+      gs._clickTestStep = 0;
+      gs._clickTestResumeStep = 0;
+    }
+    gs._isDirectionalTesting = true;
+    gs._directionalTestStep = 0;
+    gs._directionalTestMaxSteps = 200;
     setGameState(gs);
     console.log('[方向模拟测试] 开始！目标：地图右上角，最多200步');
     this.directionalSimStep();
@@ -1769,13 +1814,13 @@ export class MapScene extends Phaser.Scene {
 
   private directionalSimStep(): void {
     const gs = getGameState();
-    const step = gs._clickTestStep;
-    const maxSteps = gs._clickTestMaxSteps || 200;
+    const step = gs._directionalTestStep;
+    const maxSteps = gs._directionalTestMaxSteps || 200;
 
     if (step >= maxSteps) {
       console.log(`[方向模拟测试] 达到最大步数 ${maxSteps}，测试结束`);
-      gs._isClickTesting = false;
-      gs._clickTestStep = 0;
+      gs._isDirectionalTesting = false;
+      gs._directionalTestStep = 0;
       setGameState(gs);
       return;
     }
@@ -1783,8 +1828,8 @@ export class MapScene extends Phaser.Scene {
     // 检查是否已到达右上角区域 (x >= 17, y <= 2)
     if (gs.currentPosition.x >= 17 && gs.currentPosition.y <= 2) {
       console.log(`[方向模拟测试] 已到达右上角区域 (${gs.currentPosition.x},${gs.currentPosition.y})，测试结束！`);
-      gs._isClickTesting = false;
-      gs._clickTestStep = 0;
+      gs._isDirectionalTesting = false;
+      gs._directionalTestStep = 0;
       setGameState(gs);
       return;
     }
@@ -1799,8 +1844,8 @@ export class MapScene extends Phaser.Scene {
     const movable = getMovableNeighbors(gs);
     if (movable.length === 0) {
       console.log(`[方向模拟测试] step=${step} 无可走格，测试结束`);
-      gs._isClickTesting = false;
-      gs._clickTestStep = 0;
+      gs._isDirectionalTesting = false;
+      gs._directionalTestStep = 0;
       setGameState(gs);
       return;
     }
@@ -1814,8 +1859,8 @@ export class MapScene extends Phaser.Scene {
     );
 
     // 保存恢复步数
-    gs._clickTestResumeStep = step + 1;
-    gs._clickTestStep = step + 1;
+    gs._directionalTestResumeStep = step + 1;
+    gs._directionalTestStep = step + 1;
     setGameState(gs);
 
     // 模拟点击格子
@@ -1844,7 +1889,7 @@ export class MapScene extends Phaser.Scene {
 
       // 正常继续
       const gs2 = getGameState();
-      gs2._clickTestResumeStep = 0;
+      gs2._directionalTestResumeStep = 0;
       setGameState(gs2);
       this.directionalSimStep();
     });
