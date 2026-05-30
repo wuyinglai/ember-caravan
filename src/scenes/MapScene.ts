@@ -711,10 +711,11 @@ export class MapScene extends Phaser.Scene {
 
     const gameState = getGameState();
     const isAutoMoving = gameState._isAutoMoving;
+    const isDirectionalTesting = gameState._isDirectionalTesting;
 
-    // Boss 格直接进入战斗（自动测试时跳过）
+    // Boss 格直接进入战斗（自动测试/方向测试时跳过）
     if (cell.type === 'boss') {
-      if (isAutoMoving) {
+      if (isAutoMoving || isDirectionalTesting) {
         console.log(
           `[地图压力测试] 跳过Boss战斗 (${cell.x},${cell.y})，直接标记已清理`
         );
@@ -730,9 +731,9 @@ export class MapScene extends Phaser.Scene {
       return;
     }
 
-    // 强敌格进入精英战斗（自动测试时跳过）
+    // 强敌格进入精英战斗（自动测试/方向测试时跳过）
     if (cell.type === 'elite') {
-      if (isAutoMoving) {
+      if (isAutoMoving || isDirectionalTesting) {
         console.log(
           `[地图压力测试] 跳过精英战斗 (${cell.x},${cell.y})，直接标记已清理`
         );
@@ -748,9 +749,9 @@ export class MapScene extends Phaser.Scene {
       return;
     }
 
-    // 营地格（自动测试时直接标记清理）
+    // 营地格（自动测试/方向测试时直接标记清理）
     if (cell.type === 'camp') {
-      if (isAutoMoving) {
+      if (isAutoMoving || isDirectionalTesting) {
         console.log(
           `[地图压力测试] 自动处理营地 (${cell.x},${cell.y})`
         );
@@ -764,9 +765,9 @@ export class MapScene extends Phaser.Scene {
       return;
     }
 
-    // 补给点（自动测试时直接标记清理）
+    // 补给点（自动测试/方向测试时直接标记清理）
     if (cell.type === 'supply') {
-      if (isAutoMoving) {
+      if (isAutoMoving || isDirectionalTesting) {
         console.log(
           `[地图压力测试] 自动处理补给 (${cell.x},${cell.y})`
         );
@@ -780,9 +781,9 @@ export class MapScene extends Phaser.Scene {
       return;
     }
 
-    // 奖励点（自动测试时直接标记清理）
+    // 奖励点（自动测试/方向测试时直接标记清理）
     if (cell.type === 'reward') {
-      if (isAutoMoving) {
+      if (isAutoMoving || isDirectionalTesting) {
         console.log(
           `[地图压力测试] 自动处理奖励 (${cell.x},${cell.y})`
         );
@@ -812,10 +813,11 @@ export class MapScene extends Phaser.Scene {
 
     const gameState = getGameState();
     const isAutoMoving = gameState._isAutoMoving;
+    const isDirectionalTesting = gameState._isDirectionalTesting;
 
     switch (cell.resolvedType) {
       case 'combat':
-        if (isAutoMoving) {
+        if (isAutoMoving || isDirectionalTesting) {
           console.log(
             `[地图压力测试] 跳过战斗 (${cell.x},${cell.y})，resolvedType=combat，直接标记已清理`
           );
@@ -828,7 +830,7 @@ export class MapScene extends Phaser.Scene {
         this.enterCombat(cell);
         break;
       case 'event':
-        if (isAutoMoving) {
+        if (isAutoMoving || isDirectionalTesting) {
           console.log(
             `[地图压力测试] 自动处理事件 (${cell.x},${cell.y})`
           );
@@ -841,7 +843,7 @@ export class MapScene extends Phaser.Scene {
         this.showEventPopup(cell);
         break;
       case 'opportunity':
-        if (isAutoMoving) {
+        if (isAutoMoving || isDirectionalTesting) {
           console.log(
             `[地图压力测试] 自动处理机遇 (${cell.x},${cell.y})`
           );
@@ -854,7 +856,7 @@ export class MapScene extends Phaser.Scene {
         this.showOpportunityPopup(cell);
         break;
       case 'danger':
-        if (isAutoMoving) {
+        if (isAutoMoving || isDirectionalTesting) {
           console.log(
             `[地图压力测试] 跳过危险 (${cell.x},${cell.y})，resolvedType=danger，直接标记已清理`
           );
@@ -867,7 +869,7 @@ export class MapScene extends Phaser.Scene {
         this.showDangerPopup(cell);
         break;
       case 'reward':
-        if (isAutoMoving) {
+        if (isAutoMoving || isDirectionalTesting) {
           console.log(
             `[地图压力测试] 自动处理奖励 (${cell.x},${cell.y})`
           );
@@ -1816,9 +1818,10 @@ export class MapScene extends Phaser.Scene {
     const gs = getGameState();
     const step = gs._directionalTestStep;
     const maxSteps = gs._directionalTestMaxSteps || 200;
+    const pos = gs.currentPosition;
 
     if (step >= maxSteps) {
-      console.log(`[方向模拟测试] 达到最大步数 ${maxSteps}，测试结束`);
+      console.log(`[方向模拟测试] ⛔ 达到最大步数 ${maxSteps}，测试结束`);
       gs._isDirectionalTesting = false;
       gs._directionalTestStep = 0;
       setGameState(gs);
@@ -1826,8 +1829,11 @@ export class MapScene extends Phaser.Scene {
     }
 
     // 检查是否已到达右上角区域 (x >= 17, y <= 2)
-    if (gs.currentPosition.x >= 17 && gs.currentPosition.y <= 2) {
-      console.log(`[方向模拟测试] 已到达右上角区域 (${gs.currentPosition.x},${gs.currentPosition.y})，测试结束！`);
+    if (pos.x >= 17 && pos.y <= 2) {
+      console.log(
+        `[方向模拟测试] ✅ 已到达右上角区域 (${pos.x},${pos.y})，` +
+        `共 ${step} 步，测试结束！`
+      );
       gs._isDirectionalTesting = false;
       gs._directionalTestStep = 0;
       setGameState(gs);
@@ -1843,19 +1849,23 @@ export class MapScene extends Phaser.Scene {
     // 获取可移动的相邻格子
     const movable = getMovableNeighbors(gs);
     if (movable.length === 0) {
-      console.log(`[方向模拟测试] step=${step} 无可走格，测试结束`);
+      console.log(
+        `[方向模拟测试] step=${step} ⛔ 无可走格 ` +
+        `当前位置=(${pos.x},${pos.y})，测试结束`
+      );
       gs._isDirectionalTesting = false;
       gs._directionalTestStep = 0;
       setGameState(gs);
       return;
     }
 
-    // 按照朝右上角的方向排序：优先向右(+x)和向上(-y)
-    const target = this.pickDirectionalTarget(movable, gs.currentPosition);
-    
+    // 使用 BFS 选择下一步
+    const target = this.pickDirectionalTarget(movable, pos);
+
     console.log(
-      `[方向模拟测试] step=${step + 1} → (${target.x},${target.y})` +
-      ` 当前位置=(${gs.currentPosition.x},${gs.currentPosition.y})`
+      `[方向模拟测试] step=${step + 1}/${maxSteps} ` +
+      `(${pos.x},${pos.y}) → (${target.x},${target.y}) ` +
+      `目标区域: x≥17,y≤2`
     );
 
     // 保存恢复步数
@@ -1883,7 +1893,7 @@ export class MapScene extends Phaser.Scene {
 
       // 检查是否进入战斗
       if (!this.scene.isActive()) {
-        console.log(`[方向模拟测试] step=${step + 1} 进入战斗，等待返回...`);
+        console.log(`[方向模拟测试] step=${step + 1} ⚔️ 进入战斗，等待返回...`);
         return; // BattleScene 的 clickSimAutoBattle 会处理
       }
 
@@ -1895,22 +1905,35 @@ export class MapScene extends Phaser.Scene {
     });
   }
 
-  private pickDirectionalTarget(
-    movable: Array<{ x: number; y: number }>,
-    current: { x: number; y: number }
-  ): { x: number; y: number } {
+  // ==================== BFS 寻路工具函数 ====================
+
+  /** BFS 判断格子是否可行走（用于寻路，不限于相邻） */
+  private isWalkable(x: number, y: number): boolean {
     const gs = getGameState();
-    const targetX = 19;
-    const targetY = 0;
+    if (x < 0 || y < 0 || x >= gs.mapWidth || y >= gs.mapHeight) return false;
+    return gs.mapCells[y][x].type !== 'obstacle';
+  }
 
-    // BFS寻路：从当前位置找到通往目标区域的最短路径，走第一步
-    // 这样遇到障碍时会自动绕路，而不是卡在局部最优
+  /**
+   * BFS 寻路：从当前位置搜索通往目标区域的最短路径，返回第一步坐标。
+   * @param current 当前位置
+   * @param movable 当前可移动的相邻格子（作为 BFS 起点）
+   * @param targetPredicate 目标判定函数，返回 true 表示到达目标
+   * @returns 第一步坐标，如果找不到路径返回 null
+   */
+  private findPathToTargetArea(
+    current: { x: number; y: number },
+    movable: Array<{ x: number; y: number }>,
+    targetPredicate: (x: number, y: number) => boolean
+  ): { x: number; y: number } | null {
     const visited = new Set<string>();
-    const queue: Array<{ x: number; y: number; firstStep: { x: number; y: number } | null }> = [];
-    const startKey = `${current.x},${current.y}`;
-    visited.add(startKey);
+    const queue: Array<{
+      x: number; y: number;
+      firstStep: { x: number; y: number } | null
+    }> = [];
 
-    // 将所有可移动邻居作为BFS起点，记录它们各自的第一步
+    visited.add(`${current.x},${current.y}`);
+
     for (const m of movable) {
       const key = `${m.x},${m.y}`;
       visited.add(key);
@@ -1918,45 +1941,70 @@ export class MapScene extends Phaser.Scene {
     }
 
     const dirs = [
-      { dx: 0, dy: -1 },
-      { dx: 0, dy: 1 },
-      { dx: -1, dy: 0 },
-      { dx: 1, dy: 0 },
+      { dx: 0, dy: -1 }, { dx: 0, dy: 1 },
+      { dx: -1, dy: 0 }, { dx: 1, dy: 0 },
     ];
 
     while (queue.length > 0) {
       const node = queue.shift()!;
 
-      // 检查是否到达目标区域
-      if (node.x >= 17 && node.y <= 2) {
-        console.log(`[方向模拟BFS] 找到路径，第一步: (${node.firstStep!.x},${node.firstStep!.y})`);
-        return node.firstStep!;
+      if (targetPredicate(node.x, node.y)) {
+        return node.firstStep;
       }
 
-      // 扩展邻居
       for (const dir of dirs) {
         const nx = node.x + dir.dx;
         const ny = node.y + dir.dy;
         const key = `${nx},${ny}`;
-
         if (visited.has(key)) continue;
-        if (nx < 0 || ny < 0 || nx >= gs.mapWidth || ny >= gs.mapHeight) continue;
-
-        const cell = gs.mapCells[ny][nx];
-        if (cell.type === 'obstacle') continue;
-
+        if (!this.isWalkable(nx, ny)) continue;
         visited.add(key);
         queue.push({ x: nx, y: ny, firstStep: node.firstStep });
       }
     }
 
-    // BFS找不到路径到目标区域，回退到贪心策略（选曼哈顿距离最近的）
-    console.log('[方向模拟BFS] 未找到通往目标的路径，使用贪心回退');
-    const scored = movable.map(m => {
-      const dist = Math.abs(m.x - targetX) + Math.abs(m.y - targetY);
-      return { ...m, dist };
-    });
+    return null; // 无路径
+  }
+
+  /**
+   * 贪心回退：选曼哈顿距离最近的可移动格。
+   * 仅在 BFS 找不到路径时使用。
+   */
+  private chooseGreedyStep(
+    movable: Array<{ x: number; y: number }>,
+    targetX: number,
+    targetY: number
+  ): { x: number; y: number } {
+    const scored = movable.map(m => ({
+      ...m,
+      dist: Math.abs(m.x - targetX) + Math.abs(m.y - targetY),
+    }));
     scored.sort((a, b) => a.dist - b.dist || (Math.random() - 0.5));
     return scored[0];
+  }
+
+  /**
+   * 方向模拟测试：选择下一步移动目标。
+   * 优先 BFS 寻路，找不到路径时回退到贪心策略。
+   */
+  private pickDirectionalTarget(
+    movable: Array<{ x: number; y: number }>,
+    current: { x: number; y: number }
+  ): { x: number; y: number } {
+    const targetX = 19;
+    const targetY = 0;
+
+    const firstStep = this.findPathToTargetArea(
+      current, movable,
+      (x, y) => x >= 17 && y <= 2
+    );
+
+    if (firstStep) {
+      console.log(`[方向模拟BFS] 找到路径，第一步: (${firstStep.x},${firstStep.y})`);
+      return firstStep;
+    }
+
+    console.log('[方向模拟BFS] 未找到通往目标的路径，使用贪心回退');
+    return this.chooseGreedyStep(movable, targetX, targetY);
   }
 }

@@ -816,9 +816,21 @@ export class BattleScene extends Phaser.Scene {
         console.log('[战斗] 返回地图，已重新计算可移动格子');
         this.scene.start('MapScene');
       } else {
-        // 失败：重置游戏并返回主菜单
-        resetGameState();
-        this.scene.start('MainMenuScene');
+        // 失败：方向测试时不重置游戏，直接返回地图
+        const gameState = getGameState();
+        if (gameState._isDirectionalTesting) {
+          console.log('[战斗] 方向测试中战斗失败，不重置游戏，返回地图');
+          gameState._isDirectionalTesting = false;
+          gameState._directionalTestStep = 0;
+          gameState._directionalTestResumeStep = 0;
+          updateReachableCells(gameState);
+          setGameState(gameState);
+          this.scene.start('MapScene');
+        } else {
+          // 正常失败：重置游戏并返回主菜单
+          resetGameState();
+          this.scene.start('MainMenuScene');
+        }
       }
     });
     btn.on('pointerover', () => btn.setStyle({ backgroundColor: victory ? '#3aca6a' : '#555577' }));
