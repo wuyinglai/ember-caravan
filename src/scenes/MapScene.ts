@@ -15,15 +15,21 @@ import {
 import { CHARACTER_DEFS } from '../data/characters';
 
 /**
- * MapScene V2 - 稳定重构版
+ * MapScene - 地图探索场景（V2 稳定重构版）
  *
- * 核心改动：
+ * 命名说明：
+ * - 文件名: MapScene.ts（保持不变，避免 BattleScene 返回路径失效）
+ * - 类名: MapScene（保持不变，同上）
+ * - Scene key: 'MapScene'（BattleScene、CharacterSelectScene 均引用此 key）
+ * - "V2" 仅表示这是经过稳定重构的版本，旧 MapScene 逻辑已完全替换
+ *
+ * 核心设计：
  * 1. 整个地图只监听一次 pointerdown，根据坐标换算格子
  * 2. 动态 canMoveTo() 判断移动，不依赖 isReachable 状态
  * 3. 统一 tryMoveTo() 入口，所有移动方式共用
  * 4. 单一 modalContainer 弹窗系统
  * 5. WASD/方向键移动商队（不是镜头）
- * 6. T/Y 自动测试键（Y 跳过战斗）
+ * 6. T/Y/G 自动测试键
  */
 export class MapScene extends Phaser.Scene {
   // 地图格子图形和文字
@@ -48,6 +54,17 @@ export class MapScene extends Phaser.Scene {
 
   constructor() {
     super({ key: 'MapScene' });
+  }
+
+  /**
+   * 场景关闭时清理全局监听器。
+   * Phaser 自动清理 scene-scoped 的 timer/tween/event，
+   * 但 this.input.keyboard 和 this.input 是全局 InputManager，
+   * 其 listener 不会随 scene 关闭而自动移除，必须手动清理。
+   */
+  shutdown() {
+    this.input.keyboard?.off('keydown');
+    this.input.off('pointerdown');
   }
 
   // ==================== 场景创建 ====================
@@ -102,6 +119,7 @@ export class MapScene extends Phaser.Scene {
         console.log('[地图V2] 自动移动测试停止：游戏结束');
         gs._isAutoMoving = false;
         gs._autoMoveResumeStep = 0;
+        gs._autoMovePrevPos = null;
         setGameState(gs);
       } else {
         console.log(
@@ -1646,6 +1664,7 @@ export class MapScene extends Phaser.Scene {
       const gs = getGameState();
       gs._isAutoMoving = false;
       gs._autoMoveResumeStep = 0;
+      gs._autoMovePrevPos = null;
       setGameState(gs);
       return;
     }
@@ -1731,6 +1750,7 @@ export class MapScene extends Phaser.Scene {
         const gs = getGameState();
         gs._isAutoMoving = false;
         gs._autoMoveResumeStep = 0;
+        gs._autoMovePrevPos = null;
         setGameState(gs);
         return;
       }
@@ -1746,9 +1766,18 @@ export class MapScene extends Phaser.Scene {
       );
     }
 
-    // 随机选择一个可移动格
-    const target =
-      movable[Math.floor(Math.random() * movable.length)];
+    // 随机选择一个可移动格（尽量避免立即走回上一步）
+    const prevPos = gameState._autoMovePrevPos;
+    let candidates = movable;
+    if (movable.length > 1 && prevPos) {
+      candidates = movable.filter(m => !(m.x === prevPos.x && m.y === prevPos.y));
+    }
+    const target = candidates[Math.floor(Math.random() * candidates.length)];
+
+    // 记录当前位置，供下一步避免走回
+    const gsBeforeMove = getGameState();
+    gsBeforeMove._autoMovePrevPos = { x: gsBeforeMove.currentPosition.x, y: gsBeforeMove.currentPosition.y };
+    setGameState(gsBeforeMove);
 
     // 统一调用 tryMoveTo（内部已处理自动测试跳过战斗逻辑）
     this.tryMoveTo(target.x, target.y);
@@ -1865,6 +1894,18 @@ export class MapScene extends Phaser.Scene {
     // 使用 BFS 选择下一步
     const target = this.pickDirectionalTarget(movable, pos);
 
+    if (!target) {
+      console.log(
+        `[方向模拟测试] step=${step + 1} ⛔ BFS 无路径，` +
+        `当前位置=(${pos.x},${pos.y})，测试结束`
+      );
+      gs._isDirectionalTesting = false;
+      gs._directionalTestStep = 0;
+      gs._directionalTestResumeStep = 0;
+      setGameState(gs);
+      return;
+    }
+
     console.log(
       `[方向模拟测试] step=${step + 1}/${maxSteps} ` +
       `(${pos.x},${pos.y}) → (${target.x},${target.y}) ` +
@@ -1971,33 +2012,13 @@ export class MapScene extends Phaser.Scene {
   }
 
   /**
-   * 贪心回退：选曼哈顿距离最近的可移动格。
-   * 仅在 BFS 找不到路径时使用。
-   */
-  private chooseGreedyStep(
-    movable: Array<{ x: number; y: number }>,
-    targetX: number,
-    targetY: number
-  ): { x: number; y: number } {
-    const scored = movable.map(m => ({
-      ...m,
-      dist: Math.abs(m.x - targetX) + Math.abs(m.y - targetY),
-    }));
-    scored.sort((a, b) => a.dist - b.dist || (Math.random() - 0.5));
-    return scored[0];
-  }
-
-  /**
    * 方向模拟测试：选择下一步移动目标。
-   * 优先 BFS 寻路，找不到路径时回退到贪心策略。
+   * 使用 BFS 寻路。找不到路径时返回 null，由调用方安全停止。
    */
   private pickDirectionalTarget(
     movable: Array<{ x: number; y: number }>,
     current: { x: number; y: number }
-  ): { x: number; y: number } {
-    const targetX = 19;
-    const targetY = 0;
-
+  ): { x: number; y: number } | null {
     const firstStep = this.findPathToTargetArea(
       current, movable,
       (x, y) => x >= 17 && y <= 2
@@ -2008,7 +2029,7 @@ export class MapScene extends Phaser.Scene {
       return { x: firstStep.x, y: firstStep.y };
     }
 
-    console.log('[方向模拟BFS] 未找到通往目标的路径，使用贪心回退');
-    return this.chooseGreedyStep(movable, targetX, targetY);
+    console.log('[方向模拟BFS] 未找到通往目标的路径，停止方向模拟');
+    return null;
   }
 }

@@ -52,6 +52,7 @@ export interface GameState {
   // 自动移动测试状态（调试用）
   _isAutoMoving: boolean;
   _autoMoveResumeStep: number;
+  _autoMovePrevPos: { x: number; y: number } | null;
   _debugStep: number;
 
   // 鼠标点击模拟测试状态（调试用）
@@ -95,6 +96,7 @@ export function createInitialGameState(): GameState {
 
     _isAutoMoving: false,
     _autoMoveResumeStep: 0,
+    _autoMovePrevPos: null,
     _debugStep: 0,
 
     _isClickTesting: false,

@@ -828,6 +828,7 @@ export class BattleScene extends Phaser.Scene {
           gameState._directionalTestResumeStep = 0;
           gameState._isAutoMoving = false;
           gameState._autoMoveResumeStep = 0;
+          gameState._autoMovePrevPos = null;
           gameState._isClickTesting = false;
           gameState._clickTestStep = 0;
           gameState._clickTestResumeStep = 0;
