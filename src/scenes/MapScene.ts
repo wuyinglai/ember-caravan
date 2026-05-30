@@ -213,6 +213,9 @@ export class MapScene extends Phaser.Scene {
     this.input.keyboard?.on('keydown', (event: KeyboardEvent) => {
       const key = event.key.toLowerCase();
 
+      // 弹窗打开时，只允许 Escape 关闭弹窗，禁止移动和测试快捷键
+      if (this.modalContainer && key !== 'escape') return;
+
       switch (key) {
         case 'w':
         case 'arrowup': {
@@ -1925,11 +1928,12 @@ export class MapScene extends Phaser.Scene {
     current: { x: number; y: number },
     movable: Array<{ x: number; y: number }>,
     targetPredicate: (x: number, y: number) => boolean
-  ): { x: number; y: number } | null {
+  ): { x: number; y: number; pathLen: number } | null {
     const visited = new Set<string>();
     const queue: Array<{
       x: number; y: number;
-      firstStep: { x: number; y: number } | null
+      firstStep: { x: number; y: number } | null;
+      depth: number;
     }> = [];
 
     visited.add(`${current.x},${current.y}`);
@@ -1937,7 +1941,7 @@ export class MapScene extends Phaser.Scene {
     for (const m of movable) {
       const key = `${m.x},${m.y}`;
       visited.add(key);
-      queue.push({ x: m.x, y: m.y, firstStep: { x: m.x, y: m.y } });
+      queue.push({ x: m.x, y: m.y, firstStep: { x: m.x, y: m.y }, depth: 1 });
     }
 
     const dirs = [
@@ -1949,7 +1953,7 @@ export class MapScene extends Phaser.Scene {
       const node = queue.shift()!;
 
       if (targetPredicate(node.x, node.y)) {
-        return node.firstStep;
+        return { x: node.firstStep!.x, y: node.firstStep!.y, pathLen: node.depth };
       }
 
       for (const dir of dirs) {
@@ -1959,7 +1963,7 @@ export class MapScene extends Phaser.Scene {
         if (visited.has(key)) continue;
         if (!this.isWalkable(nx, ny)) continue;
         visited.add(key);
-        queue.push({ x: nx, y: ny, firstStep: node.firstStep });
+        queue.push({ x: nx, y: ny, firstStep: node.firstStep, depth: node.depth + 1 });
       }
     }
 
@@ -2000,8 +2004,8 @@ export class MapScene extends Phaser.Scene {
     );
 
     if (firstStep) {
-      console.log(`[方向模拟BFS] 找到路径，第一步: (${firstStep.x},${firstStep.y})`);
-      return firstStep;
+      console.log(`[方向模拟BFS] 路径长度=${firstStep.pathLen}步，第一步: (${firstStep.x},${firstStep.y})`);
+      return { x: firstStep.x, y: firstStep.y };
     }
 
     console.log('[方向模拟BFS] 未找到通往目标的路径，使用贪心回退');

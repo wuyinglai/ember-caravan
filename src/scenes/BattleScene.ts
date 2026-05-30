@@ -816,18 +816,26 @@ export class BattleScene extends Phaser.Scene {
         console.log('[战斗] 返回地图，已重新计算可移动格子');
         this.scene.start('MapScene');
       } else {
-        // 失败：方向测试时不重置游戏，直接返回地图
+        // 失败：测试模式下不重置游戏，直接返回地图
         const gameState = getGameState();
-        if (gameState._isDirectionalTesting) {
-          console.log('[战斗] 方向测试中战斗失败，不重置游戏，返回地图');
+        const isTestMode = gameState._isDirectionalTesting || gameState._isAutoMoving || gameState._isClickTesting;
+        if (isTestMode) {
+          const testName = gameState._isDirectionalTesting ? '方向测试'
+            : gameState._isAutoMoving ? '自动移动测试' : '点击模拟测试';
+          console.log(`[战斗] ${testName}中战斗失败，不重置游戏，返回地图`);
           gameState._isDirectionalTesting = false;
           gameState._directionalTestStep = 0;
           gameState._directionalTestResumeStep = 0;
+          gameState._isAutoMoving = false;
+          gameState._autoMoveResumeStep = 0;
+          gameState._isClickTesting = false;
+          gameState._clickTestStep = 0;
+          gameState._clickTestResumeStep = 0;
           updateReachableCells(gameState);
           setGameState(gameState);
           this.scene.start('MapScene');
         } else {
-          // 正常失败：重置游戏并返回主菜单
+          // 正式模式失败：重置游戏并返回主菜单
           resetGameState();
           this.scene.start('MainMenuScene');
         }
