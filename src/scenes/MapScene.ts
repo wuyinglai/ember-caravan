@@ -290,6 +290,126 @@ export class MapScene extends Phaser.Scene {
             }
           }
           break;
+        // ========== 调试键（阶段 3 验收用） ==========
+        case 'i': {
+          // I 键：让第一个角色进入重伤
+          const gs = getGameState();
+          const firstId = gs.selectedCharacters[0];
+          if (firstId && gs.characterStates[firstId]) {
+            const cs = gs.characterStates[firstId];
+            cs.currentHp = 1;
+            cs.isWounded = true;
+            cs.restNodes = 3;
+            cs.graveWounds += 1;
+            setGameState(gs);
+            console.log(`[调试I] ${cs.def.name} 已进入重伤:`, JSON.stringify({ currentHp: cs.currentHp, isWounded: cs.isWounded, restNodes: cs.restNodes, graveWounds: cs.graveWounds }));
+            this.updatePartyDisplay();
+          } else {
+            console.log('[调试I] 没有找到第一个角色');
+          }
+          break;
+        }
+        case 'o': {
+          // O 键：让第一个角色累计重伤 +1
+          const gs = getGameState();
+          const firstId = gs.selectedCharacters[0];
+          if (firstId && gs.characterStates[firstId]) {
+            const cs = gs.characterStates[firstId];
+            cs.graveWounds += 1;
+            if (cs.graveWounds >= 3) {
+              cs.isDead = true;
+              cs.isWounded = false;
+              console.log(`[调试O] ${cs.def.name} 重伤次数达到3次，已死亡！`);
+            } else {
+              console.log(`[调试O] ${cs.def.name} 重伤次数+1，当前=${cs.graveWounds}/3`);
+            }
+            setGameState(gs);
+            this.updatePartyDisplay();
+          }
+          break;
+        }
+        case 'p': {
+          // P 键：打印当前 characterStates
+          const gs = getGameState();
+          console.log('[调试P] ========== characterStates ==========');
+          for (const id of gs.selectedCharacters) {
+            const cs = gs.characterStates[id];
+            if (cs) {
+              console.log(`  ${cs.def.name}:`, JSON.stringify({
+                currentHp: cs.currentHp,
+                maxHp: cs.def.maxHp,
+                isWounded: cs.isWounded,
+                isDead: cs.isDead,
+                restNodes: cs.restNodes,
+                graveWounds: cs.graveWounds
+              }));
+            }
+          }
+          console.log('[调试P] ====================================');
+          break;
+        }
+        case 'l': {
+          // L 键：让全队进入重伤（测试远征失败）
+          const gs = getGameState();
+          for (const id of gs.selectedCharacters) {
+            const cs = gs.characterStates[id];
+            if (cs && !cs.isDead) {
+              cs.currentHp = 1;
+              cs.isWounded = true;
+              cs.restNodes = 3;
+              cs.graveWounds += 1;
+              console.log(`[调试L] ${cs.def.name} 已进入重伤`);
+            }
+          }
+          setGameState(gs);
+          this.updatePartyDisplay();
+          // 检查远征失败
+          if (checkExpeditionFailed()) {
+            console.log('[调试L] 全队重伤，远征失败！');
+            this.showExpeditionFailedModal();
+          }
+          break;
+        }
+        case 'k': {
+          // K 键：触发补给点弹窗（测试补给功能）
+          const gsK = getGameState();
+          const mockSupplyCell: MapCell = {
+            x: gsK.currentPosition.x,
+            y: gsK.currentPosition.y,
+            type: 'supply',
+            resolvedType: null,
+            visited: false,
+            isCurrent: false,
+            isReachable: false,
+            isRevealed: true,
+            isCleared: false,
+            isGoal: false,
+            rewardType: null,
+          };
+          console.log('[调试K] 触发补给点弹窗');
+          this.showSupplyPopup(mockSupplyCell);
+          break;
+        }
+        case 'm': {
+          // M 键：触发营地弹窗（测试营地功能）
+          const gsM = getGameState();
+          const mockCampCell: MapCell = {
+            x: gsM.currentPosition.x,
+            y: gsM.currentPosition.y,
+            type: 'camp',
+            resolvedType: null,
+            visited: false,
+            isCurrent: false,
+            isReachable: false,
+            isRevealed: true,
+            isCleared: false,
+            isGoal: false,
+            rewardType: null,
+          };
+          console.log('[调试M] 触发营地弹窗');
+          this.showCampPopup(mockCampCell);
+          break;
+        }
         default:
           return;
       }
